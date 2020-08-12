@@ -1,0 +1,32 @@
+{
+  "name": "bolt-starter",
+  "version": "0.0.1",
+  "description": "Bolt app starter",
+  "main": "index.js",
+  "scripts": {
+    "local": "node_modules/.bin/nodemon index.js",
+    "start": "node index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:seratch/bolt-starter.git"
+  },
+  "keywords": [
+    "Slack",
+    "Bolt"
+  ],
+  "author": "@seratch",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/seratch/bolt-starter/issues"
+  },
+  "homepage": "https://github.com/seratch/bolt-starter#readme",
+  "dependencies": {
+    "@slack/bolt": "^2.0.1",
+    "dotenv": "^8.2.0",
+    "local": "^0.3.3"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.1"
+  }
+}
