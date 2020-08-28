@@ -174,6 +174,13 @@ app.event("message", async ({ logger, client, event, say }) => {
 app.event("reaction_added", async ({ logger, client, event, say }) => {
   logger.debug("reaction_added event payload:\n\n" + JSON.stringify(event, null, 2) + "\n");
   const user = Object.keys(ts_user).filter((key) => { return ts_user[key].ts == event.item.ts });
+  if (event.reaction === "delete" && event.item.channel === channel_id) {
+    await client.chat.delete({
+      channel: channel_id,
+      ts: event.item.ts
+    });
+    return;
+  }
   if (user[0]) {
     if (event.reaction === "対応中" && ts_user[user[0]]) {
       await client.chat.postMessage({
