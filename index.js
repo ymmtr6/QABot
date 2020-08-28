@@ -147,7 +147,7 @@ app.event("message", async ({ logger, client, event, say }) => {
       const result = await client.chat.postMessage({ channel: channel_id, text: pre_text + event.text + suf_text, blocks: generateQuestionBlock(pre_text, event.text, suf_text) });
       ts_user[event.user] = { user: event.user, ts: result.ts, channel: channel_id, in_progress: false }
       //logeer.debug(JSON.stringify(result, null, 2));
-      await client.chat.postMessage({ channel: event.user, text: "[自動応答]メッセージを質問チャンネルに送信しました。返信をお待ちください。(メッセージ編集は反映されません)" })
+      await client.chat.postMessage({ channel: event.user, text: "[自動応答]質問を受け付けました。返信をお待ちください。追記事項がある場合はこのメッセージに続けて送信してください。" })
     }
   } else if (event["channel_type"] === "channel" || event["channel_type"] == "group") {
     // チャンネルの一致を確認する
@@ -192,7 +192,7 @@ app.event("reaction_added", async ({ logger, client, event, say }) => {
     }
     if (event.reaction === "対応済2" && ts_user[user[0]]) {
       await client.chat.postMessage({
-        channel: ts_user[user[0]].channel, text: "[対応終了]以降のスレッドは質問者に転送されません。", thread_ts: ts_user[user[0]].ts
+        channel: ts_user[user[0]].channel, text: "[対応終了]以降のスレッドは転送されません。", thread_ts: ts_user[user[0]].ts
       });
       await client.chat.postMessage({ channel: user[0], text: "[自動応答]質問対応を終了しました。以降のメッセージは新規の質問対応として処理されます。" });
       //ts_user[user[0]].in_progress = false;
