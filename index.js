@@ -325,9 +325,11 @@ receiver.app.get("/", (_req, res) => {
   // 初期化
   await app.start(process.env.PORT || 3000);
   console.log("⚡️ Bolt app is running!");
-
+  // 起動メッセージ
   const result = await app.client.chat.postMessage({ token: process.env.SLACK_BOT_TOKEN, channel: channel_id, text: "QABotが起動しました" });
+  // メンバーリスト取得
   membersList = await getMembers(channel_id, app.client);
+  // ラウンドロピンの初期値を指定
   rbcounter = Math.floor(Math.random() * membersList.length);
   console.log(JSON.stringify(membersList));
 })();
