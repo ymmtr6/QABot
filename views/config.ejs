@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>QABot</title>
+  <script src="https://code.jquery.com/jquery-3.3.1.js"></script>
+</head>
+<body>
+  <h1>QABot SETTING PAGE</h1>
+  <div>
+    <p>変更する場合は、現在の設定ファイル
+    <a href="/getConfig">config</a>を改変して以下のフォームよりアップロードできます。
+    </p>
+  </div>
+  <form enctype="multipart/form-data">
+    <input type="file" name="config_form" accept="application/json">
+    <button id="uploadButton" type="button" onClick="file_upload()">送信</button>
+  </form>
+  <script>
+    function file_upload() {
+      const $file = $('input[name=config_form]')
+      const reader = new FileReader();
+      reader.addEventListener("load", function () {
+        console.log(reader.result);
+        $.ajax({
+          url: "/setConfig",
+          type: "POST",
+          data: reader.result,
+          cache: false,
+          processData: false,
+          contentType: "application/json",
+        })
+          .done(function (data, textStatus, jqXHR) {
+            alert(data);
+          })
+          .fail(function (jqXHR, textStatus, errorThrown) {
+            alert(errorThrown);
+          });
+      });
+      reader.readAsText($file.prop("files")[0]);
+    }
+  </script>
+</body>
+</html>

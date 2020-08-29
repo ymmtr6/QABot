@@ -9,6 +9,7 @@ for (const k in config) {
 const { LogLevel } = require("@slack/logger");
 const logLevel = process.env.SLACK_LOG_LEVEL || LogLevel.DEBUG;
 
+const express = require("express");
 const { App, ExpressReceiver } = require("@slack/bolt");
 // If you deploy this app to FaaS, turning this on is highly recommended
 // Refer to https://github.com/slackapi/bolt/issues/395 for details
@@ -325,10 +326,42 @@ async function getMembers(channel_id, client) {
   return client.conversations.members(param).then(pageLoaded);
 }
 
+// ejsの導入でhtmlファイルを扱う
+receiver.app.set("view engine", "ejs");
+
 // アプリ動作確認用
 receiver.app.get("/", (_req, res) => {
   res.send("Your Bolt ⚡️ App is running!");
 });
+
+// メンバー情報を受け渡す(Slack user_idしか持ち得ないので、直接害はないはず、、、）
+receiver.app.get("/getConfig", (_req, res) => {
+  res.json({
+    bot_id: "xxxxxxxx",
+    channel_id: "xxxxxxxx",
+    members: membersList
+  });
+});
+// コンフィグへのページ
+receiver.app.get("/config", (_req, res) => {
+  res.render("./config.ejs");
+});
+// ファイル受取 (Github bolt-js Issue #516より、expressを追加)
+receiver.app.post("/setConfig", express.json(), (req, res) => {
+  try {
+    console.log(req.body);
+    if (req.body.channel_id !== channel_id || req.body.bot_id !== bot_id) {
+      res.send("NG: channel_id or bod_id is failed.");
+      console.log("NG");
+      return;
+    }
+    members = req.body.members;
+    res.send("OK");
+  } catch (e) {
+    console.log(e);
+  }
+});
+
 
 // アプリの起動
 (async () => {
