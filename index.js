@@ -27,10 +27,11 @@ const app = new App({
 
 const channel_id = process.env.CHANNEL_ID;
 const bot_id = process.env.BOT_ID;
-const ts_user = {} // ts_user[ts] = user_id
-let membersList = []
+const ts_user = {}; // ts_user[event.user] = { user: event.user, ts: result.ts, channel: channel_id, in_progress: false }
+let membersList = [];
+let questioner_map = {};
 let rbcounter = 0;
-let state = "ROUNDROBIN" // ROUNDROBIN, RANDOM, RATIO
+let state = process.env.PICKUP_METHOD || "ROUNDROBIN" // ROUNDROBIN, RANDOM, RATIO
 
 // Request dumper middleware for easier debugging
 if (process.env.SLACK_REQUEST_LOG_ENABLED === "1") {
@@ -58,18 +59,25 @@ if (process.env.SLACK_REQUEST_LOG_ENABLED === "1") {
 // see https://slack.dev/bolt/
 
 // https://api.slack.com/apps/{APP_ID}/event-subscriptions
+// ---------------------------------------------------------------
+
+// appメンションを受けた場合
 app.event("app_mention", async ({ logger, client, event, say }) => {
   logger.debug("app_mention event payload:\n\n" + JSON.stringify(event, null, 2) + "\n");
   if (~event.text.indexOf("leave")) {
+    // チャンネル退室機能。（誤って追加した場合）
     const leave = await client.conversations.leave({
       "channel": event.channel
     });
     logger.debug("leabe result:\n\n" + JSON.stringify(leave, null, 2) + "\n");
     return leave;
   }
-  // 以下はchannel_idの一致が必要なので飛ばす
+  // 以降は指定したチャンネル（質問対応チャンネル）のみで動作
   if (event.channel !== channel_id) {
-    return
+    const leave = await client.conversations.leave({
+      "channel": event.channel
+    });
+    return leave;
   }
   if (~event.text.indexOf("pick")) {
     if (!membersList || membersList.length == 0) {
@@ -83,26 +91,8 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
   } else if (~event.text.indexOf("state")) {
     await client.chat.postMessage({
       channel: channel_id,
-      text: `LB: ${state}\nAnswers: ` + JSON.stringify(membersList, null, 2)
+      text: `Pickup: ${state}\nAnswers: ` + JSON.stringify(membersList, null, 2)
     });
-  } else if (~event.text.indexOf("random")) {
-    state = "RANDOM";
-    await client.chat.postMessage({
-      channel: channel_id,
-      text: "pickup stateをRANDOMに設定します。"
-    });
-  } else if (~event.text.indexOf("roundrobin")) {
-    state = "ROUNDROBIN";
-    await client.chat.postMessage({
-      channel: channel_id,
-      text: "pickup stateをROUNDROBINに設定します"
-    })
-  } else if (~event.text.indexOf("ratio")) {
-    state = "RATIO";
-    await client.chat.postMessage({
-      channel: channel_id,
-      text: "pickup stateをRATIOに設定します"
-    })
   } else if (~event.text.indexOf("reset")) {
     membersList = await getMembers(channel_id, app.client);
     rbcounter = Math.floor(Math.random() * membersList.length);
@@ -113,10 +103,7 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
       + "\n[pick] メンバーから一人ピックアップします"
       + "\n[reset] メンバーリストを再読み込みします"
       + "\n[leave] Appをチャンネルから退室させます"
-      + "\n[state] 現在の状態を表示します"
-      + "\n[random] pickup stateをRANDOMに設定します"
-      + "\n[roundrobin] pickup stateをROUNDROBINに設定します"
-      + "\n[ratio] pickup stateをRATIOに設定します";
+      + "\n[state] 現在の設定を表示します"
     const result = await say({ text: text });
     logger.debug("say result:\n\n" + JSON.stringify(result, null, 2) + "\n");
     return result;
@@ -134,46 +121,51 @@ app.event("message", async ({ logger, client, event, say }) => {
   if (event["channel_type"] === "im") {
     // im
     if (ts_user[event.user]) {
-      // BotにDMを送信している場合、返事を行う。
+      // 質問をすでに受けている場合、質問スレッドに追記してやりとりを続ける。
       logger.debug("スレッドにRedirect");
       const dm_info = ts_user[event.user]
       await redirectMessage({ client }, dm_info.channel, event.text, dm_info.ts);
     } else {
       // メッセージが登録されていない場合（初質問)
-      // ここでchannel_idを固定している。要再検討
+
+      /* この辺でメッセージの確認をする(「質問があります」を省く？) */
+
       logger.debug("チャンネルにRedirect(質問初投稿)");
       const pre_text = `<@${event.user}>さんが質問を投稿しました\n`;
       const suf_text = "\n\n責任者は" + `<@${choiseOne()}>` + "さんに割り当てられました。\nスレッドを介してやりとりするには :対応中: でリアクションしてください。";
       const result = await client.chat.postMessage({ channel: channel_id, text: pre_text + event.text + suf_text, blocks: generateQuestionBlock(pre_text, event.text, suf_text) });
-      ts_user[event.user] = { user: event.user, ts: result.ts, channel: channel_id, in_progress: false }
+      // 質問受付リストに登録
+      ts_user[event.user] = { user: event.user, ts: result.ts, channel: channel_id, in_progress: false };
       //logeer.debug(JSON.stringify(result, null, 2));
-      await client.chat.postMessage({ channel: event.user, text: "[自動応答]質問を受け付けました。返信をお待ちください。追記事項がある場合はこのメッセージに続けて送信してください。" })
+      await client.chat.postMessage({ channel: event.user, text: "[自動応答]質問を受け付けました。返信をお待ちください。追記事項がある場合は続けて送信してください。" });
     }
   } else if (event["channel_type"] === "channel" || event["channel_type"] == "group") {
+    // チャンネルへの書き込み
+
     // チャンネルの一致を確認する
     if (event["channel"] !== channel_id) {
-      return;
+      return; // 質問チャンネルではない場合は無視
     }
-    // channel (private 含む)
+    // スレッドに書き込んだメッセージかつ、Botが投下したメッセージのスレッドの場合
     if (event["thread_ts"] && event["parent_user_id"] == bot_id) {
-      //logger.debug("DMにRedirect: " + bot_id);
+      // 質問者のuser_idを取得する。質問していない場合はnull
       const user = Object.keys(ts_user).filter((key) => { return ts_user[key].ts == event["thread_ts"] });
       logger.debug("DMにRedirect: " + user[0]);
       if (!user[0] || !ts_user[user[0]] || !ts_user[user[0]].in_progress) {
+        // 質問者のuser_idがない場合, 質問応対(in_progress)をしていない場合
         return;
       }
+      // 質問者にメッセージをリダイレクト && 送信済を表すリアクション
       await redirectMessage({ client }, user[0], event.text, null);
       await checkReaction({ logger, client, event, say });
-    } else {
-      // スレッドに登録されているものは反応する。
-      // await checkReaction({ logger, client, event, say });
     }
   }
 });
 
+// リアクション追加時 (対応開始、対応終了、Botが投下したメッセージの削除)
 app.event("reaction_added", async ({ logger, client, event, say }) => {
   logger.debug("reaction_added event payload:\n\n" + JSON.stringify(event, null, 2) + "\n");
-  const user = Object.keys(ts_user).filter((key) => { return ts_user[key].ts == event.item.ts });
+  //　Botが投下したメッセージの削除機能
   if (event.reaction === "delete" && event.item.channel === channel_id) {
     await client.chat.delete({
       channel: channel_id,
@@ -181,8 +173,12 @@ app.event("reaction_added", async ({ logger, client, event, say }) => {
     });
     return;
   }
+  // 質問対応中である場合、ユーザを取得
+  const user = Object.keys(ts_user).filter((key) => { return ts_user[key].ts == event.item.ts });
+
   if (user[0]) {
     if (event.reaction === "対応中" && ts_user[user[0]]) {
+      // 質問に対して対応中をつけた場合（対応開始)
       await client.chat.postMessage({
         channel: ts_user[user[0]].channel,
         text: "[対応開始]以降のスレッドは質問者に転送されます。対応が終了した場合、:対応済2:をスレッドトップのメッセージにつけてください。メッセージの編集機能は質問者側に反映されないので注意してください。",
@@ -191,9 +187,11 @@ app.event("reaction_added", async ({ logger, client, event, say }) => {
       ts_user[user[0]].in_progress = true;
     }
     if (event.reaction === "対応済2" && ts_user[user[0]]) {
+      // 対応中の質問に対して、対応済2をつけた場合(対応終了)
       await client.chat.postMessage({
         channel: ts_user[user[0]].channel, text: "[対応終了]以降のスレッドは転送されません。", thread_ts: ts_user[user[0]].ts
       });
+      // userに対して対応終了を通知する
       await client.chat.postMessage({ channel: user[0], text: "[自動応答]質問対応を終了しました。以降のメッセージは新規の質問対応として処理されます。" });
       //ts_user[user[0]].in_progress = false;
       delete ts_user[user[0]];
@@ -201,6 +199,7 @@ app.event("reaction_added", async ({ logger, client, event, say }) => {
   }
 });
 
+// reaction削除
 app.event("reaction_removed", async ({ logger, event, say }) => {
   logger.debug("reaction_removed event payload:\n\n" + JSON.stringify(event, null, 2) + "\n");
 });
@@ -241,7 +240,7 @@ function choiseOne() {
   }
 }
 
-// 質問内容をblockで表現
+// 質問内容 Block Kit
 function generateQuestionBlock(prefix_text, main_text, suffix_text) {
   return [
     {
@@ -268,7 +267,7 @@ function generateQuestionBlock(prefix_text, main_text, suffix_text) {
   ];
 }
 
-// リダイレクト機能を追加
+// リダイレクト機能
 async function redirectMessage({ client }, channel, text, ts) {
   // tsがある時、スレッドに投稿する。
   if (ts) {
@@ -277,15 +276,17 @@ async function redirectMessage({ client }, channel, text, ts) {
       "text": text,
       "thread_ts": ts
     });
+    return result;
   } else {
     const result = await client.chat.postMessage({
       "channel": channel,
       "text": text
     });
+    return result;
   }
 }
 
-// Botの確認済リアクション
+// Botの送信済リアクション
 async function checkReaction({ logger, client, event, say }) {
   const result = await client.reactions.add({
     "channel": event.channel,
@@ -295,7 +296,7 @@ async function checkReaction({ logger, client, event, say }) {
   return result;
 }
 
-// チャンネルメンバーを設定する。
+// チャンネルメンバーを取得する。
 async function getMembers(channel_id, client) {
   const param = {
     token: process.env.SLACK_BOT_TOKEN,
@@ -305,7 +306,7 @@ async function getMembers(channel_id, client) {
   let members = [];
   function pageLoaded(res) {
     res.members.forEach(m => {
-      if (m !== bot_id)
+      if (m !== bot_id) // Botは弾く
         members.push({ id: m, weight: 1 });
     });
     if (res.response_metadata && res.response_metadata.next_cursor && res.response_metadata.next_cursor !== '') {
@@ -317,6 +318,7 @@ async function getMembers(channel_id, client) {
   return client.conversations.members(param).then(pageLoaded);
 }
 
+// アプリ動作確認用
 receiver.app.get("/", (_req, res) => {
   res.send("Your Bolt ⚡️ App is running!");
 });
