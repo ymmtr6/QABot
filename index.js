@@ -25,12 +25,19 @@ const app = new App({
   processBeforeResponse,
 });
 
+// 質問対応チャンネル
 const channel_id = process.env.CHANNEL_ID;
+// 動作するBotID
 const bot_id = process.env.BOT_ID;
+// 質問者の連想リスト
 const ts_user = {}; // ts_user[event.user] = { user: event.user, ts: result.ts, channel: channel_id, in_progress: false }
+// 質問対応者リスト
 let membersList = [];
+// 質問回数リスト
 let questioner_map = {};
+// ラウンドロピンのカウンター
 let rbcounter = 0;
+// pickup state
 let state = process.env.PICKUP_METHOD || "ROUNDROBIN" // ROUNDROBIN, RANDOM, RATIO
 
 // Request dumper middleware for easier debugging
@@ -323,6 +330,7 @@ receiver.app.get("/", (_req, res) => {
   res.send("Your Bolt ⚡️ App is running!");
 });
 
+// アプリの起動
 (async () => {
   // 初期化
   await app.start(process.env.PORT || 3000);
