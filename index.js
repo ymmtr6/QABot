@@ -25,9 +25,9 @@ const app = new App({
   processBeforeResponse,
 });
 
-const channel_id = process.env.CHANNEL_ID || "CRAQA0GKH";
-const bot_id = process.env.BOT_ID || "W018V7A8RND";
-const ts_user = {}
+const channel_id = process.env.CHANNEL_ID;
+const bot_id = process.env.BOT_ID;
+const ts_user = {} // ts_user[ts] = user_id
 let membersList = []
 let rbcounter = 0;
 let state = "ROUNDROBIN" // ROUNDROBIN, RANDOM, RATIO
