@@ -353,7 +353,7 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
   await client.chat.postMessage({
     channel: user, text: question_text
   });
-  await client.chat.postMessage({ channel: user, text: "[自動応答]質問を受け付けました。返信をお待ちください。追記事項がある場合は、直接こちらに返信してください。" });
+  await client.chat.postMessage({ channel: user, text: "[自動応答]質問を受け付けました。返信をお待ちください。追記事項がある場合は続けて追記してください。" });
 });
 
 // Utility to post a message using response_url
