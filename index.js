@@ -333,14 +333,22 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
   });
   // ユーザ追加処理
   const user = inputs.from.value.value.match(/<@([0-9a-zA-Z]*)>/)[1];
-  logger.debug("user: " + user);
+  const question_text = `[${inputs.type.value.value}]${inputs.question.value.value}`;
+  // もしすでに質問対応を行っていた場合
+  if (ts_user[user]) {
+    const dm_info = ts_user[event.user]
+    await redirectMessage({ client }, dm_info.channel, question_text, dm_info.ts);
+    await client.chat.postMessage({
+      channel: user, text: question_text
+    });
+    return;
+  }
   const pre_text = `<@${user}>さんが質問を投稿しました\n`;
   const suf_text = "\n\n責任者は" + `<@${choiseOne()}>` + "さんに割り当てられました。\nスレッドを介してやりとりするには :対応中: でリアクションしてください。";
-  const question_text = `[${inputs.type.value.value}]${inputs.question.value.value}`;
   const result = await client.chat.postMessage({ channel: channel_id, text: pre_text + question_text + suf_text, blocks: generateQuestionBlock(pre_text, question_text, suf_text) });
   //logger.debug(question_text);
   // 質問受付リストに登録
-  ts_user[event.user] = { user: user, ts: result.ts, channel: channel_id, in_progress: false };
+  ts_user[user] = { user: user, ts: result.ts, channel: channel_id, in_progress: false };
   //logeer.debug(JSON.stringify(result, null, 2));
   await client.chat.postMessage({
     channel: user, text: question_text
