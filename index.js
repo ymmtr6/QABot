@@ -212,20 +212,141 @@ app.event("reaction_removed", async ({ logger, event, say }) => {
   logger.debug("reaction_removed event payload:\n\n" + JSON.stringify(event, null, 2) + "\n");
 });
 
-// workflow_step
-app.event("workflow_step_edit", async ({ logger, client, ack, body }) => {
-  logger.debug("workflow_step_edit:" + JSON.stringify(event, null, 2) + "\n");
+// workflow steps
+app.action({ type: 'workflow_step_edit' }, async ({ body, ack, client, logger }) => {
+  logger.debug("workflow_step_edit: " + JSON.stringify(body, null, 2));
+  // Acknowledge the event
+  await ack();
+  // Open the configuration modal using `views.open`
+  await openWorkflowModal({ logger, client, ack, body });
 });
 
-async function openModal({ logger, client, ack, event }) {
+// workflow用のモーダル
+async function openWorkflowModal({ logger, client, ack, body }) {
   try {
     const res = await client.views.open({
-      "trigger_id": event.trigger_id
-    })
+      "trigger_id": body.trigger_id,
+      view: {
+        type: "workflow_step",
+        callback_id: "qabot_workflow",
+        blocks: [
+          {
+            "type": "input",
+            "block_id": "qabot_input_questioner",
+            "element": {
+              "type": "plain_text_input",
+              "action_id": "from"
+            },
+            "label": {
+              "type": "plain_text",
+              "text": "質問者",
+              "emoji": true
+            }
+          },
+          {
+            "type": "input",
+            "block_id": "qabot_input_qtype",
+            "element": {
+              "type": "plain_text_input",
+              "action_id": "q_type"
+            },
+            "label": {
+              "type": "plain_text",
+              "text": "質問の種類",
+              "emoji": true
+            }
+          },
+          {
+            "type": "input",
+            "block_id": "qabot_input_values",
+            "element": {
+              "type": "plain_text_input",
+              "action_id": "question",
+              "multiline": true
+            },
+            "label": {
+              "type": "plain_text",
+              "text": "質問内容",
+              "emoji": true
+            }
+          }
+        ]
+      }
+    });
   } catch (e) {
 
   }
 }
+
+// workflowのview更新
+app.view("qabot_workflow", async ({ logger, client, view, body, ack }) => {
+  logger.debug("qabot_workflow view : " + JSON.stringify(body, null, 2) + "\n");
+  await ack();
+  let workflowEditId = body.workflow_step.workflow_step_edit_id;
+  let from = view.state.values.qabot_input_questioner.from;
+  let type = view.state.values.qabot_input_qtype.q_type;
+  let question = view.state.values.qabot_input_values.question;
+
+  await client.workflows.updateStep({
+    workflow_step_edit_id: workflowEditId,
+    inputs: {
+      from: { value: (from || "") },
+      type: { value: (type || "") },
+      question: { value: (question || "") }
+    },
+    outputs: [
+      {
+        name: "from",
+        type: "text",
+        label: "Questioner"
+      },
+      {
+        name: "type",
+        type: "text",
+        label: "Question Type"
+      },
+      {
+        name: "question",
+        type: "text",
+        label: "Question"
+      }
+    ]
+  });
+});
+
+// workflowの実行
+app.event("workflow_step_execute", async ({ logger, client, event }) => {
+  logger.debug("workflow_step_execute: " + JSON.stringify(event, null, 2) + "\n");
+  // ここで実行処理
+  let workflowExecuteId = event.workflow_step.workflow_step_execute_id;
+  let inputs = event.workflow_step.inputs
+
+  logger.debug("inputs: " + JSON.stringify(inputs, null, 2) + "\n");
+
+  await client.workflows.stepCompleted({
+    workflow_step_execute_id: workflowExecuteId,
+    outputs: {
+      name: inputs.from.value,
+      question: inputs.question.value,
+      type: inputs.question.type
+    }
+  });
+  // ユーザ追加処理
+  const user = inputs.from.value.value.match(/<@([0-9a-zA-Z]*)>/)[1];
+  logger.debug("user: " + user);
+  const pre_text = `<@${user}>さんが質問を投稿しました\n`;
+  const suf_text = "\n\n責任者は" + `<@${choiseOne()}>` + "さんに割り当てられました。\nスレッドを介してやりとりするには :対応中: でリアクションしてください。";
+  const question_text = `[${inputs.type.value.value}]${inputs.question.value.value}`;
+  const result = await client.chat.postMessage({ channel: channel_id, text: pre_text + question_text + suf_text, blocks: generateQuestionBlock(pre_text, question_text, suf_text) });
+  //logger.debug(question_text);
+  // 質問受付リストに登録
+  ts_user[event.user] = { user: user, ts: result.ts, channel: channel_id, in_progress: false };
+  //logeer.debug(JSON.stringify(result, null, 2));
+  await client.chat.postMessage({
+    channel: user, text: question_text
+  });
+  await client.chat.postMessage({ channel: user, text: "[自動応答]質問を受け付けました。返信をお待ちください。追記事項がある場合は、直接こちらに返信してください。" });
+});
 
 // Utility to post a message using response_url
 const axios = require('axios');
