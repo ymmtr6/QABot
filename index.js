@@ -150,7 +150,7 @@ app.event("message", async ({ logger, client, event, say }) => {
   } else if (event["channel_type"] === "channel" || event["channel_type"] == "group") {
     // チャンネルへの書き込み
 
-    // チャンネルの一致を確認する
+    // チャンネルの一致を確認する (質問対応チャンネルかどうか確認)
     if (event["channel"] !== channel_id) {
       return; // 質問チャンネルではない場合は無視
     }
@@ -211,6 +211,21 @@ app.event("reaction_added", async ({ logger, client, event, say }) => {
 app.event("reaction_removed", async ({ logger, event, say }) => {
   logger.debug("reaction_removed event payload:\n\n" + JSON.stringify(event, null, 2) + "\n");
 });
+
+// workflow_step
+app.event("workflow_step_edit", async ({ logger, client, ack, body }) => {
+  logger.debug("workflow_step_edit:" + JSON.stringify(event, null, 2) + "\n");
+});
+
+async function openModal({ logger, client, ack, event }) {
+  try {
+    const res = await client.views.open({
+      "trigger_id": event.trigger_id
+    })
+  } catch (e) {
+
+  }
+}
 
 // Utility to post a message using response_url
 const axios = require('axios');
@@ -369,7 +384,7 @@ receiver.app.post("/setConfig", express.json(), (req, res) => {
   await app.start(process.env.PORT || 3000);
   console.log("⚡️ Bolt app is running!");
   // 起動メッセージ
-  const result = await app.client.chat.postMessage({ token: process.env.SLACK_BOT_TOKEN, channel: channel_id, text: "QABotが起動しました" });
+  // const result = await app.client.chat.postMessage({ token: process.env.SLACK_BOT_TOKEN, channel: channel_id, text: "QABotが起動しました" });
   // メンバーリスト取得
   membersList = await getMembers(channel_id, app.client);
   // ラウンドロピンの初期値を指定
