@@ -384,7 +384,8 @@ function choiseOne() {
   if (state === "RANDOM") {
     return membersList[Math.floor(Math.random() * membersList.length)].id;
   } else if (state === "ROUNDROBIN") {
-    if (rbcounter == membersList.length)
+    // バグ対策
+    if (rbcounter >= membersList.length)
       rbcounter = 0;
     return membersList[rbcounter++].id;
   } else if (state === "RATIO") {
