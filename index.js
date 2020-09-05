@@ -5,7 +5,6 @@ for (const k in config) {
 }
 
 const fs = require("fs");
-const path = require("path");
 const { LogLevel } = require("@slack/logger");
 const logLevel = process.env.SLACK_LOG_LEVEL || LogLevel.DEBUG;
 
@@ -25,13 +24,13 @@ const app = new App({
 });
 
 // bot id
-const bot_id = process.env.BOT_ID;
+let bot_id = process.env.BOT_ID;
 
 // channel_table = { channel_id: name, ... }
-const channel_table = [];
+let channel_table = [];
 
 // ts_user = { user_id: { user: user_id, ts: ts, channel: channel_id, in_progress: false } }
-const ts_user = {};
+let ts_user = {};
 
 // メッセージ応答
 app.event("app_mention", async ({ logger, client, event, say }) => {
@@ -46,9 +45,13 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
       "channel": event.channel
     });
   } else if (~event.text.indexOf("setup")) {
-    say(`channel_id(${event.channel})を質問受付チャンネルとして登録しました。`);
-    channel_table.push(event.channel);
-    writeConfig("channels.json", channel_table);
+    if (channel_table.indexOf(event.channel) !== -1) {
+      say(`channel_id(${event.channel})は既に質問受付チャンネルとして登録されています。`);
+    } else {
+      say(`channel_id(${event.channel})を質問受付チャンネルとして登録しました。`);
+      channel_table.push(event.channel);
+      writeConfig("channels.json", channel_table);
+    }
   }
 });
 
@@ -83,7 +86,7 @@ async function parseThread({ logger, client, event }) {
       return ts_user[key].ts === event["thread_ts"];
     });
     // user_idが登録されていない、質問応対中出ない場合
-    if (!user[0] || ts_user[user[0]].in_progress) {
+    if (!user[0] || !ts_user[user[0]].in_progress) {
       return;
     }
     await redirectMessage({ client }, user[0], event.text, null);
@@ -113,6 +116,7 @@ app.event("reaction_added", async ({ logger, client, event }) => {
         text: "[対応終了]以降のスレッドは転送されません。",
         thread_ts: ts_user[user[0]].ts
       });
+      delete ts_user[user[0]];
     }
   }
 });
@@ -133,24 +137,26 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
   if (event.reaction === "対応済2") {
     // 対応済を取り消した場合(再アクセス)
     const messages = await client.conversations.replies({
-      channel: event.channel,
+      channel: event.item.channel,
       ts: event.item.ts
     });
     if (messages["messages"] && messages["messages"][0]) {
       // テキストの行頭に質問者をつけているので、これでmatchするはず
-      const user_id = messages["messages"][0][text].match(/<@(*.?)>/);
-      if (m && m[1]) {
-        ts_user[user] = { user: user, ts: event.item.ts, channel: channel_id, in_progress: true };
+      logger.debug(messages["messages"][0]["text"]);
+      const user_id = messages["messages"][0]["text"].match(/<@([0-9a-zA-Z]*)>/)[1];
+      const ts = messages["messages"][0]["ts"];
+      if (user_id && user_id[1]) {
+        ts_user[user_id] = { user: user_id, ts: event.item.ts, channel: event.item.channel, in_progress: true };
       }
       // threadに投稿
       await client.chat.postMessage({
-        channel: event.channel,
+        channel: event.item.channel,
         text: "[対応再開] :対応済2: が取り消されたので、スレッドの転送を再開します。",
         thread_ts: event.item.ts
       })
       // userに投稿
       await client.chat.postMessage({
-        channel: user,
+        channel: user_id,
         text: "[自動応答] 応答が再開されました。",
       });
     }
@@ -298,13 +304,9 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
     }
   });
   // ユーザ追加処理
-  const channel_id = inputs.channel_id.value;
-  if (channel_table.indexOf(channel_id) === -1) {
-    // 質問チャンネルが追加されていなければ追加する。
-    channel_table.push(channel_id);
-  }
+  const channel_id = inputs.channel_id.value.value;
   const user = inputs.from.value.value.match(/<@([0-9a-zA-Z]*)>/)[1];
-  const type = inputs.types.value.value;
+  const type = inputs.type.value.value;
   let question_text = `${inputs.question.value.value}`;
   if (type !== "") {
     question_text = `[${inputs.type.value.value}]${inputs.question.value.value}`
@@ -312,7 +314,7 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
 
   // もしすでに質問対応を行っていた場合
   if (ts_user[user]) {
-    const dm_info = ts_user[event.user]
+    const dm_info = ts_user[user];
     await redirectMessage({ client }, dm_info.channel, question_text, dm_info.ts);
     await client.chat.postMessage({
       channel: user, text: question_text
@@ -320,7 +322,7 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
     return;
   }
   const pre_text = `<@${user}>さんが質問を投稿しました\n`;
-  const suf_text = "\n\n責任者は" + `<@${choiseOne()}>` + "さんに割り当てられました。\nスレッドを介してやりとりするには :対応中: でリアクションしてください。";
+  const suf_text = "\nスレッドを介してやりとりするには :対応中: でリアクションしてください。";
   const result = await client.chat.postMessage({ channel: channel_id, text: pre_text + question_text + suf_text, blocks: generateQuestionBlock(pre_text, question_text, suf_text) });
   //logger.debug(question_text);
   // 質問受付リストに登録
@@ -351,6 +353,33 @@ async function redirectMessage({ client }, channel, text, ts) {
   }
 }
 
+// 質問内容 Block Kit
+function generateQuestionBlock(prefix_text, main_text, suffix_text) {
+  return [
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": prefix_text
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": main_text
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": suffix_text
+      }
+    }
+  ];
+}
+
 // 送信済リアクション
 async function sendReaction({ logger, client, event }) {
   const result = await client.reactions.add({
@@ -378,8 +407,16 @@ async function getPrivateChanenlList({ client }) {
   return client.users.conversations(param).then(pageLoaded);
 }
 
+async function setBotID(client) {
+  const test = await client.auth.test({
+    token: process.env.SLACK_BOT_TOKEN
+  });
+  console.log(test);
+  bot_id = test.user_id;
+}
+
 function existsConfig(filename) {
-  return path.existsSync(`./config/${filename}`);
+  return fs.existsSync(`./config/${filename}`);
 }
 
 function readConfig(filename) {
@@ -399,7 +436,9 @@ receiver.app.get("/", (_req, res) => {
   await app.start(process.env.PORT || 3000);
   console.log("Bolt app is runnning!");
 
+  await setBotID(app.client);
+
   if (existsConfig("channels.json")) {
     channel_table = readConfig("channels.json");
   }
-})
+})();

@@ -13,9 +13,11 @@ services:
     volumes:
       - ./https-portal:/var/lib/https-portal
   qabot:
-    image: ymmtr6/qabot
+    image: ymmtr6/qabot:v2
     restart: always
     ports:
-      - 3000:3000
+      - 8686:3000
     env_file:
       - .env
+    volumes:
+      - ./config:/
