@@ -185,7 +185,7 @@ app.event("reaction_added", async ({ logger, client, event, say }) => {
   const user = Object.keys(ts_user).filter((key) => { return ts_user[key].ts == event.item.ts });
 
   if (user[0]) {
-    if (event.reaction === "対応中" && ts_user[user[0]]) {
+    if (event.reaction === "対応中" && !ts_user[user[0]].in_progress) {
       // 質問に対して対応中をつけた場合（対応開始)
       await client.chat.postMessage({
         channel: ts_user[user[0]].channel,
@@ -226,23 +226,27 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
       channel: channel_id,
       ts: event.item.ts
     });
-    if (messages["messages"] && messages["messages"][0]) {
-      // テキストの行頭に質問者をつけているので、これでmatchするはず
-      const user_id = messages["messages"][0][text].match(/<@(*.?)>/);
-      if (m && m[1]) {
-        ts_user[user] = { user: user, ts: event.item.ts, channel: channel_id, in_progress: true };
+    try {
+      if (messages["messages"] && messages["messages"][0]) {
+        // テキストの行頭に質問者をつけているので、これでmatchするはず
+        const user_id = messages["messages"][0][text].match(/<@([0-9a-zA-Z]*)>/)[1];
+        if (user_id && user_id[1]) {
+          ts_user[user_id] = { user: user_id, ts: event.item.ts, channel: channel_id, in_progress: true };
+        }
+        // threadに投稿
+        await client.chat.postMessage({
+          channel: channel_id,
+          text: "[対応再開] :対応済2: が取り消されたので、スレッドの転送を再開します。",
+          thread_ts: event.item.ts
+        })
+        // userに投稿
+        await client.chat.postMessage({
+          channel: user_id,
+          text: "[自動応答] 応答が再開されました。",
+        });
       }
-      // threadに投稿
-      await client.chat.postMessage({
-        channel: channel_id,
-        text: "[対応再開] :対応済2: が取り消されたので、スレッドの転送を再開します。",
-        thread_ts: event.item.ts
-      })
-      // userに投稿
-      await client.chat.postMessage({
-        channel: user,
-        text: "[自動応答] 応答が再開されました。",
-      });
+    } catch (e) {
+      logger.debug(e);
     }
   }
 });
@@ -363,15 +367,20 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
     outputs: {
       name: inputs.from.value,
       question: inputs.question.value,
-      type: inputs.question.type
+      type: inputs.type.value
     }
   });
   // ユーザ追加処理
   const user = inputs.from.value.value.match(/<@([0-9a-zA-Z]*)>/)[1];
-  const question_text = `[${inputs.type.value.value}]${inputs.question.value.value}`;
+  const type = inputs.type.value.value;
+  let question_text = `${inputs.question.value.value}`;
+  if (type !== "") {
+    question_text = `[${type}]${inputs.question.value.value}`;
+  }
+
   // もしすでに質問対応を行っていた場合
   if (ts_user[user]) {
-    const dm_info = ts_user[event.user]
+    const dm_info = ts_user[user]
     await redirectMessage({ client }, dm_info.channel, question_text, dm_info.ts);
     await client.chat.postMessage({
       channel: user, text: question_text
