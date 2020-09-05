@@ -490,7 +490,7 @@ receiver.app.get("/getConfig", (_req, res) => {
 receiver.app.get("/config", (_req, res) => {
   res.render("./config.ejs");
 });
-// ファイル受取 (Github bolt-js Issue #516より、expressを追加)
+// ファイル受取 (Github bolt-js Issue #516より、expressを追加することで、req.bodyを取得)
 receiver.app.post("/setConfig", express.json(), (req, res) => {
   try {
     console.log(req.body);
@@ -499,7 +499,10 @@ receiver.app.post("/setConfig", express.json(), (req, res) => {
       console.log("NG");
       return;
     }
+    // メンバーリスト取得
     members = req.body.members;
+    rbcounter = Math.floor(Math.random() * membersList.length);
+    console.log(JSON.stringify(membersList, null, 2));
     res.send("OK");
   } catch (e) {
     console.log(e);
