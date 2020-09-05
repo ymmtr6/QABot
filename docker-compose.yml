@@ -1,0 +1,21 @@
+version: "2"
+services:
+  https-portal:
+    image: steveltn/https-portal:1
+    ports:
+      - 80:80
+      - 443:443
+    restart: always
+    environment:
+      DOMAINS: "example.com -> http://qabot:3000"
+      STAGE: production
+      CLIENT_MAX_BODY_SIZE: 0
+    volumes:
+      - ./https-portal:/var/lib/https-portal
+  qabot:
+    image: ymmtr6/qabot
+    restart: always
+    ports:
+      - 3000:3000
+    env_file:
+      - .env
