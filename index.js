@@ -60,9 +60,9 @@ app.event("message", async ({ logger, client, event, say }) => {
   logger.debug("message event payload: \n" + JSON.stringify(event, null, 2) + "\n");
 
   if (event["channel_type"] === "im") {
-    await parseDM({ logger, client, event });
+    await parseDM({ logger, client, event }).catch((e) => logger.debug(e));
   } else if (event["channel_type"] === "channel" || event["channel_type"] === "group") {
-    await parseThread({ logger, client, event });
+    await parseThread({ logger, client, event }).catch((e) => logger.debug(e));
   }
 });
 
@@ -107,7 +107,7 @@ app.event("reaction_added", async ({ logger, client, event }) => {
         channel: ts_user[user[0]].channel,
         text: "[対応開始]以降のスレッドは質問者に転送されます。対応が終了した場合、 :対応済2: をスレッドトップのメッセージにつけてください。",
         thread_ts: ts_user[user[0]].ts
-      });
+      }).catch((e) => logger.debug(e));
       ts_user[user[0]].in_progress = true;
     }
     if (event.reaction === "対応済2" && ts_user[user[0]]) {
@@ -115,7 +115,7 @@ app.event("reaction_added", async ({ logger, client, event }) => {
         channel: ts_user[user[0]].channel,
         text: "[対応終了]以降のスレッドは転送されません。",
         thread_ts: ts_user[user[0]].ts
-      });
+      }).catch((e) => logger.debug(e));
       delete ts_user[user[0]];
     }
   }
@@ -131,7 +131,7 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
       channel: ts_user[user[0]].channel,
       text: "[対応中止] :対応中: が取り消されました。スレッドの転送を中止します。再開するには、もう一度質問のトップメッセージに :対応中: でリアクションしてください。",
       thread_ts: ts_user[user[0]].ts
-    });
+    }).catch((e) => logger.debug(e));
     ts_user[user[0]].in_progress = false;
   }
   if (event.reaction === "対応済2") {
@@ -139,7 +139,7 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
     const messages = await client.conversations.replies({
       channel: event.item.channel,
       ts: event.item.ts
-    });
+    }).catch((e) => logger.debug(e));
     if (messages["messages"] && messages["messages"][0]) {
       // テキストの行頭に質問者をつけているので、これでmatchするはず
       logger.debug(messages["messages"][0]["text"]);
@@ -153,12 +153,12 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
         channel: event.item.channel,
         text: "[対応再開] :対応済2: が取り消されたので、スレッドの転送を再開します。",
         thread_ts: event.item.ts
-      })
+      }).catch((e) => logger.debug(e));
       // userに投稿
       await client.chat.postMessage({
         channel: user_id,
         text: "[自動応答] 応答が再開されました。",
-      });
+      }).catch((e) => logger.debug(e));
     }
   }
 });
@@ -318,20 +318,20 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
     await redirectMessage({ client }, dm_info.channel, question_text, dm_info.ts);
     await client.chat.postMessage({
       channel: user, text: question_text
-    });
+    }).catch((e) => logger.debug(e));
     return;
   }
   const pre_text = `<@${user}>さんが質問を投稿しました\n`;
   const suf_text = "\nスレッドを介してやりとりするには :対応中: でリアクションしてください。";
-  const result = await client.chat.postMessage({ channel: channel_id, text: pre_text + question_text + suf_text, blocks: generateQuestionBlock(pre_text, question_text, suf_text) });
+  const result = await client.chat.postMessage({ channel: channel_id, text: pre_text + question_text + suf_text, blocks: generateQuestionBlock(pre_text, question_text, suf_text) }).catch((e) => logger.debug(e));
   //logger.debug(question_text);
   // 質問受付リストに登録
   ts_user[user] = { user: user, ts: result.ts, channel: channel_id, in_progress: false };
   //logeer.debug(JSON.stringify(result, null, 2));
   await client.chat.postMessage({
     channel: user, text: question_text
-  });
-  await client.chat.postMessage({ channel: user, text: "[自動応答]質問を受け付けました。返信をお待ちください。追記事項がある場合は続けて追記してください。" });
+  }).catch((e) => logger.debug(e));
+  await client.chat.postMessage({ channel: user, text: "[自動応答]質問を受け付けました。返信をお待ちください。追記事項がある場合は続けて追記してください。" }).catch((e) => logger.debug(e));
 });
 
 // リダイレクト機能
@@ -342,13 +342,13 @@ async function redirectMessage({ client }, channel, text, ts) {
       "channel": channel,
       "text": text,
       "thread_ts": ts
-    });
+    }).catch((e) => logger.debug(e));
     return result;
   } else {
     const result = await client.chat.postMessage({
       "channel": channel,
       "text": text
-    });
+    }).catch((e) => logger.debug(e));
     return result;
   }
 }
@@ -386,7 +386,7 @@ async function sendReaction({ logger, client, event }) {
     "channel": event.channel,
     "name": "white_check_mark",
     "timestamp": event.event_ts
-  });
+  }).catch((e) => logger.debug(e));
 }
 
 // PrivateChannelListを取得
