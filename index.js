@@ -208,8 +208,43 @@ app.event("reaction_added", async ({ logger, client, event, say }) => {
 });
 
 // reaction削除
-app.event("reaction_removed", async ({ logger, event, say }) => {
+app.event("reaction_removed", async ({ logger, client, event, say }) => {
   logger.debug("reaction_removed event payload:\n\n" + JSON.stringify(event, null, 2) + "\n");
+  const user = Object.keys(ts_user).filter((key) => { return ts_user[key].ts == event.item.ts });
+  if (event.reaction === "対応中" && ts_user[user[0]]) {
+    // 対応中を取り消した場合()
+    await client.chat.postMessage({
+      channel: ts_user[user[0]].channel,
+      text: "[対応中止] :対応中: が取り消されました。スレッドの転送を中止します。再開するには、もう一度質問のトップメッセージに :対応中: でリアクションしてください。",
+      thread_ts: ts_user[user[0]].ts
+    });
+    ts_user[user[0]].in_progress = false;
+  }
+  if (event.reaction === "対応済2") {
+    // 対応済を取り消した場合(再アクセス)
+    const messages = await client.conversations.replies({
+      channel: channel_id,
+      ts: event.item.ts
+    });
+    if (messages["messages"] && messages["messages"][0]) {
+      // テキストの行頭に質問者をつけているので、これでmatchするはず
+      const user_id = messages["messages"][0][text].match(/<@(*.?)>/);
+      if (m && m[1]) {
+        ts_user[user] = { user: user, ts: event.item.ts, channel: channel_id, in_progress: true };
+      }
+      // threadに投稿
+      await client.chat.postMessage({
+        channel: channel_id,
+        text: "[対応再開] :対応済2: が取り消されたので、スレッドの転送を再開します。",
+        thread_ts: event.item.ts
+      })
+      // userに投稿
+      await client.chat.postMessage({
+        channel: user,
+        text: "[自動応答] 応答が再開されました。",
+      });
+    }
+  }
 });
 
 // workflow steps
