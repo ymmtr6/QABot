@@ -300,7 +300,7 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
       channel_id: inputs.channel_id.value,
       name: inputs.from.value,
       question: inputs.question.value,
-      type: inputs.question.type
+      type: inputs.type.value
     }
   });
   // ユーザ追加処理
