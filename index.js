@@ -116,6 +116,10 @@ app.event("reaction_added", async ({ logger, client, event }) => {
         text: "[対応終了]以降のスレッドは転送されません。",
         thread_ts: ts_user[user[0]].ts
       }).catch((e) => logger.debug(e));
+      await client.chat.postMessage({
+        channel: user[0],
+        text: "[対応終了]以降のやりとりは転送されません。",
+      }).catch((e) => logger.debug(e));
       delete ts_user[user[0]];
     }
   }
