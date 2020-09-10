@@ -109,6 +109,7 @@ app.event("reaction_added", async ({ logger, client, event }) => {
         thread_ts: ts_user[user[0]].ts
       }).catch((e) => logger.debug(e));
       ts_user[user[0]].in_progress = true;
+      writeConfig("ts_user.json", ts_user);
     }
     if (event.reaction === "対応済2" && ts_user[user[0]]) {
       await client.chat.postMessage({
@@ -121,6 +122,7 @@ app.event("reaction_added", async ({ logger, client, event }) => {
         text: "[対応終了]以降のやりとりは転送されません。",
       }).catch((e) => logger.debug(e));
       delete ts_user[user[0]];
+      writeConfig("ts_user.json", ts_user);
     }
   }
 });
@@ -137,6 +139,7 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
       thread_ts: ts_user[user[0]].ts
     }).catch((e) => logger.debug(e));
     ts_user[user[0]].in_progress = false;
+    writeConfig("ts_user.json", ts_user);
   }
   if (event.reaction === "対応済2") {
     // 対応済を取り消した場合(再アクセス)
@@ -151,6 +154,7 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
       const ts = messages["messages"][0]["ts"];
       if (user_id && user_id[1]) {
         ts_user[user_id] = { user: user_id, ts: event.item.ts, channel: event.item.channel, in_progress: true };
+        writeConfig("ts_user.json", ts_user);
       }
       // threadに投稿
       await client.chat.postMessage({
@@ -331,6 +335,8 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
   //logger.debug(question_text);
   // 質問受付リストに登録
   ts_user[user] = { user: user, ts: result.ts, channel: channel_id, in_progress: false };
+  // config
+  writeConfig("ts_user.json", ts_user);
   //logeer.debug(JSON.stringify(result, null, 2));
   await client.chat.postMessage({
     channel: user, text: question_text
@@ -444,5 +450,8 @@ receiver.app.get("/", (_req, res) => {
 
   if (existsConfig("channels.json")) {
     channel_table = readConfig("channels.json");
+  }
+  if (existsConfig("ts_user.json")) {
+    ts_user = readConfig("ts_user.json");
   }
 })();
