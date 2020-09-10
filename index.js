@@ -29,6 +29,9 @@ let bot_id = process.env.BOT_ID;
 // channel_table = { channel_id: name, ... }
 let channel_table = [];
 
+// announce channel = { from(channel_id) : to(channel_id) , ...}
+let announce_channel = {};
+
 // ts_user = { user_id: { user: user_id, ts: ts, channel: channel_id, in_progress: false } }
 let ts_user = {};
 
@@ -51,6 +54,16 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
       say(`channel_id(${event.channel})を質問受付チャンネルとして登録しました。`);
       channel_table.push(event.channel);
       writeConfig("channels.json", channel_table);
+    }
+  } else if (~event.text.indexOf("announce")) {
+    const inputs = event.text.split(" ");
+    if (inputs[2] && channel_table.indexOf(inputs[2]) !== -1) {
+      announce_channel[inputs[2]] = event.channel;
+      say(`このチャンネル(${event.channel})を質問公開チャンネルとして登録します。`);
+    } else if (inputs[2]) {
+      say(`チャンネル${event.channel}は質問対応チャンネルとして登録されていません。`);
+    } else {
+      say(`USAGE : @QABot announce [channel_id]`);
     }
   }
 });
@@ -329,7 +342,10 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
     }).catch((e) => logger.debug(e));
     return;
   }
-  const pre_text = `<@${user}>さんが質問を投稿しました\n`;
+  let pre_text = `<@${user}>さんが質問を投稿しました\n`;
+  if (type == "匿名") {
+    pre_text = "";
+  }
   const suf_text = "\nスレッドを介してやりとりするには :対応中: でリアクションしてください。";
   const result = await client.chat.postMessage({ channel: channel_id, text: pre_text + question_text + suf_text, blocks: generateQuestionBlock(pre_text, question_text, suf_text) }).catch((e) => logger.debug(e));
   //logger.debug(question_text);
