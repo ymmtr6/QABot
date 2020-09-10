@@ -328,9 +328,9 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
   const channel_id = inputs.channel_id.value.value;
   const user = inputs.from.value.value.match(/<@([0-9a-zA-Z]*)>/)[1];
   const type = inputs.type.value.value;
-  let question_text = `${inputs.question.value.value}`;
-  if (type !== "") {
-    question_text = `[${inputs.type.value.value}]${inputs.question.value.value}`
+  let question_text = `[${inputs.type.value.value}]\n${inputs.question.value.value}`;
+  if (!type || type === "" || type === "匿名" || type === "None" || type === "その他" || type == null) {
+    question_text = `${inputs.question.value.value}`
   }
 
   // もしすでに質問対応を行っていた場合
@@ -357,7 +357,7 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
   await client.chat.postMessage({
     channel: user, text: question_text
   }).catch((e) => logger.debug(e));
-  await client.chat.postMessage({ channel: user, text: "[自動応答]質問を受け付けました。返信をお待ちください。追記事項がある場合は続けて追記してください。" }).catch((e) => logger.debug(e));
+  await client.chat.postMessage({ channel: user, text: "[自動応答]質問を受け付けました。返信をお待ちください。" }).catch((e) => logger.debug(e));
 });
 
 // リダイレクト機能
@@ -383,7 +383,7 @@ async function redirectMessage({ client }, channel, text, ts) {
 function generateQuestionBlock(prefix_text, main_text, suffix_text) {
   let blocks = [];
   if (prefix_text !== "") {
-    blocks.append(
+    blocks.push(
       {
         "type": "section",
         "text": {
@@ -393,7 +393,7 @@ function generateQuestionBlock(prefix_text, main_text, suffix_text) {
       }
     );
   }
-  blocks.append(
+  blocks.push(
     {
       "type": "section",
       "text": {
@@ -402,7 +402,7 @@ function generateQuestionBlock(prefix_text, main_text, suffix_text) {
       }
     }
   );
-  blocks.append(
+  blocks.push(
     {
       "type": "section",
       "text": {
