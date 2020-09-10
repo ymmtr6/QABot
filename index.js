@@ -381,21 +381,28 @@ async function redirectMessage({ client }, channel, text, ts) {
 
 // 質問内容 Block Kit
 function generateQuestionBlock(prefix_text, main_text, suffix_text) {
-  return [
-    {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": prefix_text
+  let blocks = [];
+  if (prefix_text !== "") {
+    blocks.append(
+      {
+        "type": "section",
+        "text": {
+          "type": "mrkdwn",
+          "text": prefix_text
+        }
       }
-    },
+    );
+  }
+  blocks.append(
     {
       "type": "section",
       "text": {
         "type": "mrkdwn",
         "text": main_text
       }
-    },
+    }
+  );
+  blocks.append(
     {
       "type": "section",
       "text": {
@@ -403,7 +410,8 @@ function generateQuestionBlock(prefix_text, main_text, suffix_text) {
         "text": suffix_text
       }
     }
-  ];
+  );
+  return blocks;
 }
 
 // 送信済リアクション
