@@ -365,17 +365,18 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
 // リダイレクト機能
 async function redirectMessage({ client, logger }, channel, text, ts) {
   // 多分ts==nullならいい感じにしてくれるけど、条件分岐を設定しておく
+  let txt = text || "送信できないデータ(画像/ファイル)";
   if (ts) {
     const result = await client.chat.postMessage({
       "channel": channel,
-      "text": text,
+      "text": txt,
       "thread_ts": ts
     }).catch((e) => logger.debug(e));
     return result;
   } else {
     const result = await client.chat.postMessage({
       "channel": channel,
-      "text": text
+      "text": txt
     }).catch((e) => logger.debug(e));
     return result;
   }
