@@ -86,7 +86,7 @@ async function parseDM({ logger, client, event, say }) {
     return; //質問を受けていない場合、何もしない
   }
   const dm_info = ts_user[event.user];
-  await redirectMessage({ client }, dm_info.channel, event.text, dm_info.ts);
+  await redirectMessage({ client, logger }, dm_info.channel, event.text, dm_info.ts);
   await sendReaction({ logger, client, event });
 }
 
@@ -104,7 +104,7 @@ async function parseThread({ logger, client, event }) {
     if (!user[0] || !ts_user[user[0]].in_progress) {
       return;
     }
-    await redirectMessage({ client }, user[0], event.text, null);
+    await redirectMessage({ client, logger }, user[0], event.text, null);
     await sendReaction({ logger, client, event });
   }
 }
@@ -338,7 +338,7 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
   // もしすでに質問対応を行っていた場合
   if (ts_user[user]) {
     const dm_info = ts_user[user];
-    await redirectMessage({ client }, dm_info.channel, question_text, dm_info.ts);
+    await redirectMessage({ client, logger }, dm_info.channel, question_text, dm_info.ts);
     await client.chat.postMessage({
       channel: user, text: question_text
     }).catch((e) => logger.debug(e));
@@ -363,7 +363,7 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
 });
 
 // リダイレクト機能
-async function redirectMessage({ client }, channel, text, ts) {
+async function redirectMessage({ client, logger }, channel, text, ts) {
   // 多分ts==nullならいい感じにしてくれるけど、条件分岐を設定しておく
   if (ts) {
     const result = await client.chat.postMessage({
