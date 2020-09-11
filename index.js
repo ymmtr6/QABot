@@ -80,12 +80,14 @@ app.event("message", async ({ logger, client, event, say }) => {
 });
 
 // dm (DM->thread)
-async function parseDM({ logger, client, event }) {
+async function parseDM({ logger, client, event, say }) {
   if (!ts_user[event.user]) {
+    //say("質問は講義チャンネルのワークフローから投稿してください。");
     return; //質問を受けていない場合、何もしない
   }
   const dm_info = ts_user[event.user];
   await redirectMessage({ client }, dm_info.channel, event.text, dm_info.ts);
+  await sendReaction({ logger, client, event });
 }
 
 // thread(TA->DM)
