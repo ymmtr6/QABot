@@ -10,6 +10,7 @@ const logLevel = process.env.SLACK_LOG_LEVEL || LogLevel.DEBUG;
 
 const express = require("express");
 const { App, ExpressReceiver } = require("@slack/bolt");
+const { debug } = require("console");
 
 const processBeforeResponse = false;
 const receiver = new ExpressReceiver({
@@ -35,7 +36,7 @@ let announce_channel = {};
 // ts_user = { user_id: { user: user_id, ts: ts, channel: channel_id, in_progress: false } }
 let ts_user = {};
 
-// allow_channels = { user_id: [channel_id, channel_id]};
+// allow_channels = { user_id: {name: channel_name, id: channel_id}, ...};
 let allow_channels = {};
 
 // メッセージ応答
@@ -189,19 +190,29 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
   }
 });
 
-app.shortcut("qabot_v2_register", async ({ logger, client, body, ack }) => {
+app.command("/qabot_load", async ({ logger, client, body, ack }) => {
+  logger.debug("command qabot_load :" + JSON.stringify(body, null, 2));
   const args = body.text.split(" ");
-  if (channel_table.indexOf(body.channel_id) !== -1 && args.length == 2) {
+  if (channel_table.indexOf(args[1]) !== -1 && args.length == 2) {
     await ack(`このチャンネルメンバーに${args[0]}へのチャンネル質問許可を与えます。`);
     logger.debug(`channel_name: ${args[0]}, channel_id: ${args[1]}`);
     const members = await getMembers({ client }, body.channel_id);
+    logger.debug("members: " + JSON.stringify(members, null, 2));
     for (const m of members) {
       if (!allow_channels[m]) {
         allow_channels[m] = [];
       }
-      allow_channels[m].push({ name: args[0], id: args[1] });
+      //const user = Object.keys(ts_user).filter((key) => {
+      //allow_channels[m].push({ name: args[0], id: args[1] });
+      const lesson = allow_channels[m].filter((record) => {
+        return (record.id === args[1]);
+      });
+      if (lesson.length === 0) {
+        allow_channels[m].push({ name: args[0], id: args[1] });
+      }
     }
     writeConfig("allow_channels.json", allow_channels);
+    logger.debug("allow_channels :" + JSON.stringify(allow_channels, null, 2));
   } else {
     await ack(`ERROR: Invaild Input.`);
   }
@@ -221,20 +232,22 @@ app.action({ type: 'workflow_step_edit', callback_id: "qabot_v2_workflow_edit" }
   await openWorkflowModal({ logger, client, ack, body });
 });
 
-app.view("qabot_v2_modal_calback", async ({ logger, client, body, ack }) => {
+app.view("qabot_v2_modal_callback", async ({ logger, client, body, ack }) => {
   await handleViewSubmission({ logger, client, body, ack });
 });
 
 // modal open
-async function openModal({ logger, client, ack, body }) {
+async function openModal({ logger, client, body, ack }) {
   try {
     logger.debug("openModal: " + JSON.stringify(body, null, 2));
     const options = generateChannelSelectBlock(body.user.id);
+    logger.debug("options: " + JSON.stringify(options, null, 2));
+
     const res = await client.views.open({
       "trigger_id": body.trigger_id,
       "view": {
         "type": "modal",
-        "calback_id": "qabot_v2_modal_calback",
+        "callback_id": "qabot_v2_modal_callback",
         "private_metadata": JSON.stringify(body),
         "title": {
           "type": "plain_text",
@@ -264,7 +277,7 @@ async function openModal({ logger, client, ack, body }) {
                 "emoji": true
               },
               "options": options,
-              "initial-option": options[0]
+              "initial_option": options[0],
             },
             "label": {
               "type": "plain_text",
@@ -351,26 +364,32 @@ async function openModal({ logger, client, ack, body }) {
 
 // handle
 async function handleViewSubmission({ logger, client, body, ack }) {
-  logger.debug("view_submission view payload: " + JSON.stringify(body, view, null, 2));
+  //logger.debug("view_submission view payload: " + JSON.stringify(body, null, 2));
 
   const stateValue = body.view.state.values;
-  const channel_id = stateValue["question_to"]["select"].value;
-  let question_type = stateValue["question_type"]["select"].value;
-  let question_text = stateValue["question_value"]["select"].value;
+  const channel_id = stateValue["question_to"]["select"]["selected_option"].value;
+  let question_type = stateValue["question_type"]["select"]["selected_option"].value;
+  let question_text = stateValue["question_value"]["input"].value;
   const user = body.user.id;
+  logger.debug(`channel_id:${channel_id}, type: ${question_type}, text: ${question_text}, user: ${user}`);
+
+  await ack();
 
   // channel check
-  if (channel_table.indexOf(event.channel) === -1) {
-    ack("質問をする権限がありません");
+  if (channel_table.indexOf(channel_id) === -1) {
+    logger.debug("no permition error");
+    client.chat.postMessage({
+      channel: user,
+      text: "[自動応答]質問ができませんでした。(channel_id error: " + channel_id + ")"
+    });
     return;
   }
-  ack();
 
   // ユーザを追加
   if (question_type === "その他" || question_type === "匿名") {
     question_type = "";
   }
-  if (ts_user[uesr]) {
+  if (ts_user[user]) {
     const dm_info = ts_user[user];
     await redirectMessage({ client, logger }, dm_info.channel, question_text, dm_info.ts);
     await client.chat.postMessage({
@@ -601,7 +620,17 @@ async function redirectMessage({ client, logger }, channel, text, ts) {
               ]
 */
 function generateChannelSelectBlock(user_id) {
-  const options = []
+  const options = [];
+  if (!allow_channels[user_id]) {
+    return [{
+      "text": {
+        "type": "plain_text",
+        "text": "NO_DATA",
+        "emoji": true
+      },
+      "value": "NO_DATA"
+    }];
+  }
   for (const obj of allow_channels[user_id]) {
     options.push({
       "text": {
@@ -610,7 +639,7 @@ function generateChannelSelectBlock(user_id) {
         "emoji": true
       },
       "value": obj.id
-    })
+    });
   }
   if (options.length === 0) {
     options.push({
@@ -619,9 +648,10 @@ function generateChannelSelectBlock(user_id) {
         "text": "NO_DATA",
         "emoji": true
       },
-      "value": ""
-    })
+      "value": "NO_DATA"
+    });
   }
+  return options;
 }
 
 // 質問内容 Block Kit
@@ -688,19 +718,19 @@ async function getPrivateChanenlList({ client }) {
 
 async function getMembers({ client }, channel_id) {
   const param = {
-    "channels": channel_id,
+    "channel": channel_id,
     "limit": 100 // default
   };
   const members = [];
   function pageLoaded(res) {
-    res.channels.forEach(c => members.push(c.id));
+    res.members.forEach(c => members.push(c));
     if (res.response_metadata && res.response_metadata.next_cursor && res.response_metadata.next_cursor !== '') {
       param.cursor = res.response_metadata.next_cursor;
-      return client.users.conversations(param).then(pageLoaded);
+      return client.conversations.members(param).then(pageLoaded);
     }
     return members;
   }
-  return client.users.conversations(param).then(pageLoaded);
+  return client.conversations.members(param).then(pageLoaded);
 }
 
 async function setBotID(client) {
@@ -720,7 +750,7 @@ function readConfig(filename) {
 }
 
 function writeConfig(filename, json_object) {
-  fs.writeFileSync(`./config/${filename}`, JSON.stringify(json_object));
+  fs.writeFileSync(`./config/${filename}`, JSON.stringify(json_object, null, 2));
 }
 
 // health check
