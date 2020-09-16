@@ -35,6 +35,9 @@ let announce_channel = {};
 // ts_user = { user_id: { user: user_id, ts: ts, channel: channel_id, in_progress: false } }
 let ts_user = {};
 
+// allow_channels = { user_id: [channel_id, channel_id]};
+let allow_channels = {};
+
 // メッセージ応答
 app.event("app_mention", async ({ logger, client, event, say }) => {
   logger.debug("app_mention event payload:\n" + JSON.stringify(event, null, 2) + "\n");
@@ -186,6 +189,29 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
   }
 });
 
+app.shortcut("qabot_v2_register", async ({ logger, client, body, ack }) => {
+  const args = body.text.split(" ");
+  if (channel_table.indexOf(body.channel_id) !== -1 && args.length == 2) {
+    await ack(`このチャンネルメンバーに${args[0]}へのチャンネル質問許可を与えます。`);
+    logger.debug(`channel_name: ${args[0]}, channel_id: ${args[1]}`);
+    const members = await getMembers({ client }, body.channel_id);
+    for (const m of members) {
+      if (!allow_channels[m]) {
+        allow_channels[m] = [];
+      }
+      allow_channels[m].push({ name: args[0], id: args[1] });
+    }
+    writeConfig("allow_channels.json", allow_channels);
+  } else {
+    await ack(`ERROR: Invaild Input.`);
+  }
+});
+
+// shortcut
+app.shortcut("qabot_v2_modal", async ({ logger, client, body, ack }) => {
+  await openModal({ logger, client, body, ack });
+});
+
 // workflow steps
 app.action({ type: 'workflow_step_edit', callback_id: "qabot_v2_workflow_edit" }, async ({ body, ack, client, logger }) => {
   logger.debug("workflow_step_edit: " + JSON.stringify(body, null, 2));
@@ -194,6 +220,187 @@ app.action({ type: 'workflow_step_edit', callback_id: "qabot_v2_workflow_edit" }
   // Open the configuration modal using `views.open`
   await openWorkflowModal({ logger, client, ack, body });
 });
+
+app.view("qabot_v2_modal_calback", async ({ logger, client, body, ack }) => {
+  await handleViewSubmission({ logger, client, body, ack });
+});
+
+// modal open
+async function openModal({ logger, client, ack, body }) {
+  try {
+    logger.debug("openModal: " + JSON.stringify(body, null, 2));
+    const options = generateChannelSelectBlock(body.user.id);
+    const res = await client.views.open({
+      "trigger_id": body.trigger_id,
+      "view": {
+        "type": "modal",
+        "calback_id": "qabot_v2_modal_calback",
+        "private_metadata": JSON.stringify(body),
+        "title": {
+          "type": "plain_text",
+          "text": "QABotで質問する",
+          "emoji": true
+        },
+        "submit": {
+          "type": "plain_text",
+          "text": "Submit",
+          "emoji": true
+        },
+        "close": {
+          "type": "plain_text",
+          "text": "Cancel",
+          "emoji": true
+        },
+        "blocks": [
+          {
+            "type": "input",
+            "block_id": "question_to",
+            "element": {
+              "type": "static_select",
+              "action_id": "select",
+              "placeholder": {
+                "type": "plain_text",
+                "text": "Select an item",
+                "emoji": true
+              },
+              "options": options,
+              "initial-option": options[0]
+            },
+            "label": {
+              "type": "plain_text",
+              "text": "質問する講義を選択してください",
+              "emoji": true
+            }
+          },
+          {
+            "type": "input",
+            "block_id": "question_type",
+            "element": {
+              "type": "static_select",
+              "action_id": "select",
+              "placeholder": {
+                "type": "plain_text",
+                "text": "質問の種類を選択してください",
+                "emoji": true
+              },
+              "options": [
+                {
+                  "text": {
+                    "type": "plain_text",
+                    "text": "講義内容",
+                    "emoji": true
+                  },
+                  "value": "講義内容"
+                },
+                {
+                  "text": {
+                    "type": "plain_text",
+                    "text": "エラー／デバッグ",
+                    "emoji": true
+                  },
+                  "value": "エラー／デバッグ"
+                },
+                {
+                  "text": {
+                    "type": "plain_text",
+                    "text": "テスト／提出物",
+                    "emoji": true
+                  },
+                  "value": "テスト／提出物"
+                },
+                {
+                  "text": {
+                    "type": "plain_text",
+                    "text": "その他",
+                    "emoji": true
+                  },
+                  "value": "その他"
+                }
+              ]
+            },
+            "label": {
+              "type": "plain_text",
+              "text": "Select an item.",
+              "emoji": true
+            }
+          },
+          {
+            "type": "input",
+            "block_id": "question_value",
+            "element": {
+              "type": "plain_text_input",
+              "action_id": "input",
+              "multiline": true
+            },
+            "label": {
+              "type": "plain_text",
+              "text": "質問内容を具体的に入力してください",
+              "emoji": true
+            }
+          }
+        ]
+      }
+    });
+    logger.debug("views.open response: " + JSON.stringify(res, null, 2));
+    await ack();
+  } catch (e) {
+    logger.error("views.open error: " + JSON.stringify(e, null, 2));
+    await ack(` :x: Failed to open modal due to *${e.code}* ...`);
+  }
+}
+
+// handle
+async function handleViewSubmission({ logger, client, body, ack }) {
+  logger.debug("view_submission view payload: " + JSON.stringify(body, view, null, 2));
+
+  const stateValue = body.view.state.values;
+  const channel_id = stateValue["question_to"]["select"].value;
+  let question_type = stateValue["question_type"]["select"].value;
+  let question_text = stateValue["question_value"]["select"].value;
+  const user = body.user.id;
+
+  // channel check
+  if (channel_table.indexOf(event.channel) === -1) {
+    ack("質問をする権限がありません");
+    return;
+  }
+  ack();
+
+  // ユーザを追加
+  if (question_type === "その他" || question_type === "匿名") {
+    question_type = "";
+  }
+  if (ts_user[uesr]) {
+    const dm_info = ts_user[user];
+    await redirectMessage({ client, logger }, dm_info.channel, question_text, dm_info.ts);
+    await client.chat.postMessage({
+      channel: user,
+      text: question_text
+    }).catch((e) => logger.debug(e));
+    return;
+  }
+  let pre_text = `<@${user}>さんが質問を投稿しました\n`;
+  if (question_type === "匿名") {
+    pre_text = "";
+  }
+  const suf_text = "\nスレッドを介してやりとりするには :対応中: でリアクションしてください。";
+  const result = await client.chat.postMessage({
+    channel: channel_id,
+    text: pre_text + question_text + suf_text,
+    blocks: generateQuestionBlock(pre_text, question_text, suf_text)
+  }).catch((e) => logger.debug(e));
+  ts_user[user] = {
+    user: user,
+    ts: result.ts,
+    channel: channel_id,
+    in_progress: false
+  }
+  writeConfig("ts_user.json", ts_user);
+  await client.chat.postMessage({
+    channel: user,
+    text: question_text + "\n[自動応答]質問を受け付けました。返信をお待ちください。"
+  }).catch((e) => logger.debug(e));
+}
 
 // workflow用のモーダル
 async function openWorkflowModal({ logger, client, ack, body }) {
@@ -381,6 +588,41 @@ async function redirectMessage({ client, logger }, channel, text, ts) {
     return result;
   }
 }
+/*
+[
+                {
+                  "text": {
+                    "type": "plain_text",
+                    "text": "情報実習2",
+                    "emoji": true
+                  },
+                  "value": "value-0"
+                }
+              ]
+*/
+function generateChannelSelectBlock(user_id) {
+  const options = []
+  for (const obj of allow_channels[user_id]) {
+    options.push({
+      "text": {
+        "type": "plain_text",
+        "text": obj.name,
+        "emoji": true
+      },
+      "value": obj.id
+    })
+  }
+  if (options.length === 0) {
+    options.push({
+      "text": {
+        "type": "plain_text",
+        "text": "NO_DATA",
+        "emoji": true
+      },
+      "value": ""
+    })
+  }
+}
 
 // 質問内容 Block Kit
 function generateQuestionBlock(prefix_text, main_text, suffix_text) {
@@ -444,6 +686,23 @@ async function getPrivateChanenlList({ client }) {
   return client.users.conversations(param).then(pageLoaded);
 }
 
+async function getMembers({ client }, channel_id) {
+  const param = {
+    "channels": channel_id,
+    "limit": 100 // default
+  };
+  const members = [];
+  function pageLoaded(res) {
+    res.channels.forEach(c => members.push(c.id));
+    if (res.response_metadata && res.response_metadata.next_cursor && res.response_metadata.next_cursor !== '') {
+      param.cursor = res.response_metadata.next_cursor;
+      return client.users.conversations(param).then(pageLoaded);
+    }
+    return members;
+  }
+  return client.users.conversations(param).then(pageLoaded);
+}
+
 async function setBotID(client) {
   const test = await client.auth.test({
     token: process.env.SLACK_BOT_TOKEN
@@ -480,5 +739,8 @@ receiver.app.get("/", (_req, res) => {
   }
   if (existsConfig("ts_user.json")) {
     ts_user = readConfig("ts_user.json");
+  }
+  if (existsConfig("allow_channels.json")) {
+    allow_channels = readConfig("allow_channels.json");
   }
 })();
