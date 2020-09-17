@@ -251,7 +251,7 @@ async function openModal({ logger, client, body, ack }) {
         "private_metadata": JSON.stringify(body),
         "title": {
           "type": "plain_text",
-          "text": "QABotで質問する",
+          "text": "QABotに質問する",
           "emoji": true
         },
         "submit": {
@@ -281,7 +281,7 @@ async function openModal({ logger, client, body, ack }) {
             },
             "label": {
               "type": "plain_text",
-              "text": "質問する講義を選択してください",
+              "text": "講義を選択してください",
               "emoji": true
             }
           },
@@ -333,7 +333,7 @@ async function openModal({ logger, client, body, ack }) {
             },
             "label": {
               "type": "plain_text",
-              "text": "Select an item.",
+              "text": "質問の種類",
               "emoji": true
             }
           },
@@ -343,7 +343,8 @@ async function openModal({ logger, client, body, ack }) {
             "element": {
               "type": "plain_text_input",
               "action_id": "input",
-              "multiline": true
+              "multiline": true,
+              "min_length": 10
             },
             "label": {
               "type": "plain_text",
