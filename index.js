@@ -240,126 +240,224 @@ app.view("qabot_v2_modal_callback", async ({ logger, client, body, ack }) => {
 async function openModal({ logger, client, body, ack }) {
   try {
     logger.debug("openModal: " + JSON.stringify(body, null, 2));
-    const options = generateChannelSelectBlock(body.user.id);
+    const channels_options = generateChannelSelectBlock(body.user.id);
     logger.debug("options: " + JSON.stringify(options, null, 2));
+    const blocks = generateModalBlock(channels_options);
 
-    const res = await client.views.open({
-      "trigger_id": body.trigger_id,
-      "view": {
-        "type": "modal",
-        "callback_id": "qabot_v2_modal_callback",
-        "private_metadata": JSON.stringify(body),
-        "title": {
-          "type": "plain_text",
-          "text": "QABotに質問する",
-          "emoji": true
-        },
-        "submit": {
-          "type": "plain_text",
-          "text": "Submit",
-          "emoji": true
-        },
-        "close": {
-          "type": "plain_text",
-          "text": "Cancel",
-          "emoji": true
-        },
-        "blocks": [
-          {
-            "type": "input",
-            "block_id": "question_to",
-            "element": {
-              "type": "static_select",
-              "action_id": "select",
-              "placeholder": {
-                "type": "plain_text",
-                "text": "Select an item",
-                "emoji": true
-              },
-              "options": options,
-              "initial_option": options[0],
-            },
-            "label": {
-              "type": "plain_text",
-              "text": "講義を選択してください",
-              "emoji": true
-            }
+    const res = await client.views.open(
+      {
+        "trigger_id": body.trigger_id,
+        "view": {
+          "type": "modal",
+          "callback_id": "qabot_v2_modal_callback",
+          "private_metadata": JSON.stringify(body),
+          "title": {
+            "type": "plain_text",
+            "text": "QABotに質問する",
+            "emoji": true
           },
-          {
-            "type": "input",
-            "block_id": "question_type",
-            "element": {
-              "type": "static_select",
-              "action_id": "select",
-              "placeholder": {
-                "type": "plain_text",
-                "text": "質問の種類を選択してください",
-                "emoji": true
-              },
-              "options": [
-                {
-                  "text": {
-                    "type": "plain_text",
-                    "text": "講義内容",
-                    "emoji": true
-                  },
-                  "value": "講義内容"
-                },
-                {
-                  "text": {
-                    "type": "plain_text",
-                    "text": "エラー／デバッグ",
-                    "emoji": true
-                  },
-                  "value": "エラー／デバッグ"
-                },
-                {
-                  "text": {
-                    "type": "plain_text",
-                    "text": "テスト／提出物",
-                    "emoji": true
-                  },
-                  "value": "テスト／提出物"
-                },
-                {
-                  "text": {
-                    "type": "plain_text",
-                    "text": "その他",
-                    "emoji": true
-                  },
-                  "value": "その他"
-                }
-              ]
-            },
-            "label": {
-              "type": "plain_text",
-              "text": "質問の種類",
-              "emoji": true
-            }
+          "submit": {
+            "type": "plain_text",
+            "text": "Submit",
+            "emoji": true
           },
-          {
-            "type": "input",
-            "block_id": "question_value",
-            "element": {
-              "type": "plain_text_input",
-              "action_id": "input",
-              "multiline": true,
-              "min_length": 10
-            },
-            "label": {
-              "type": "plain_text",
-              "text": "質問内容を具体的に入力してください",
-              "emoji": true
-            }
-          }
-        ]
+          "close": {
+            "type": "plain_text",
+            "text": "Cancel",
+            "emoji": true
+          },
+          "blocks": blocks
+        }
       }
-    });
+    );
     logger.debug("views.open response: " + JSON.stringify(res, null, 2));
     await ack();
   } catch (e) {
     logger.error("views.open error: " + JSON.stringify(e, null, 2));
     await ack(` :x: Failed to open modal due to *${e.code}* ...`);
+  }
+}
+
+function generateModalBlock(channels_options) {
+  if (channel_options.length === 1) {
+    return [
+      {
+        "type": "input",
+        "block_id": "question_to",
+        "element": {
+          "type": "static_select",
+          "action_id": "select",
+          "placeholder": {
+            "type": "plain_text",
+            "text": "Select an item",
+            "emoji": true
+          },
+          "options": channels_options,
+          "initial_option": channels_options[0],
+        },
+        "label": {
+          "type": "plain_text",
+          "text": "講義を選択してください",
+          "emoji": true
+        }
+      },
+      {
+        "type": "input",
+        "block_id": "question_type",
+        "element": {
+          "type": "static_select",
+          "action_id": "select",
+          "placeholder": {
+            "type": "plain_text",
+            "text": "質問の種類を選択してください",
+            "emoji": true
+          },
+          "options": [
+            {
+              "text": {
+                "type": "plain_text",
+                "text": "講義内容",
+                "emoji": true
+              },
+              "value": "講義内容"
+            },
+            {
+              "text": {
+                "type": "plain_text",
+                "text": "エラー／デバッグ",
+                "emoji": true
+              },
+              "value": "エラー／デバッグ"
+            },
+            {
+              "text": {
+                "type": "plain_text",
+                "text": "テスト／提出物",
+                "emoji": true
+              },
+              "value": "テスト／提出物"
+            },
+            {
+              "text": {
+                "type": "plain_text",
+                "text": "その他",
+                "emoji": true
+              },
+              "value": "その他"
+            }
+          ]
+        },
+        "label": {
+          "type": "plain_text",
+          "text": "質問の種類",
+          "emoji": true
+        }
+      },
+      {
+        "type": "input",
+        "block_id": "question_value",
+        "element": {
+          "type": "plain_text_input",
+          "action_id": "input",
+          "multiline": true,
+          "min_length": 10
+        },
+        "label": {
+          "type": "plain_text",
+          "text": "質問内容を具体的に入力してください",
+          "emoji": true
+        }
+      }
+    ];
+  } else {
+    return [
+      {
+        "type": "input",
+        "block_id": "question_to",
+        "element": {
+          "type": "static_select",
+          "action_id": "select",
+          "placeholder": {
+            "type": "plain_text",
+            "text": "Select an item",
+            "emoji": true
+          },
+          "options": channels_options,
+        },
+        "label": {
+          "type": "plain_text",
+          "text": "講義を選択してください",
+          "emoji": true
+        }
+      },
+      {
+        "type": "input",
+        "block_id": "question_type",
+        "element": {
+          "type": "static_select",
+          "action_id": "select",
+          "placeholder": {
+            "type": "plain_text",
+            "text": "質問の種類を選択してください",
+            "emoji": true
+          },
+          "options": [
+            {
+              "text": {
+                "type": "plain_text",
+                "text": "講義内容",
+                "emoji": true
+              },
+              "value": "講義内容"
+            },
+            {
+              "text": {
+                "type": "plain_text",
+                "text": "エラー／デバッグ",
+                "emoji": true
+              },
+              "value": "エラー／デバッグ"
+            },
+            {
+              "text": {
+                "type": "plain_text",
+                "text": "テスト／提出物",
+                "emoji": true
+              },
+              "value": "テスト／提出物"
+            },
+            {
+              "text": {
+                "type": "plain_text",
+                "text": "その他",
+                "emoji": true
+              },
+              "value": "その他"
+            }
+          ]
+        },
+        "label": {
+          "type": "plain_text",
+          "text": "質問の種類",
+          "emoji": true
+        }
+      },
+      {
+        "type": "input",
+        "block_id": "question_value",
+        "element": {
+          "type": "plain_text_input",
+          "action_id": "input",
+          "multiline": true,
+          "min_length": 10
+        },
+        "label": {
+          "type": "plain_text",
+          "text": "質問内容を具体的に入力してください",
+          "emoji": true
+        }
+      }
+    ];
   }
 }
 
