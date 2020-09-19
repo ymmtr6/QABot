@@ -21,3 +21,4 @@ services:
       - .env
     volumes:
       - ./config:/usr/src/app/config
+      - ./tmp:/usr/src/app/tmp

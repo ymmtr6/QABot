@@ -11,6 +11,8 @@ const logLevel = process.env.SLACK_LOG_LEVEL || LogLevel.DEBUG;
 const express = require("express");
 const { App, ExpressReceiver } = require("@slack/bolt");
 const { debug } = require("console");
+const request = require("request");
+const { title } = require("process");
 
 const processBeforeResponse = false;
 const receiver = new ExpressReceiver({
@@ -90,8 +92,51 @@ async function parseDM({ logger, client, event, say }) {
     return; //質問を受けていない場合、何もしない
   }
   const dm_info = ts_user[event.user];
+
   await redirectMessage({ client, logger }, dm_info.channel, event.text, dm_info.ts);
+  if (event.files) {
+    await fileDownload({ logger, client, event }, dm_info.channel, dm_info.ts);
+  }
   await sendReaction({ logger, client, event });
+}
+
+async function fileDownload({ logger, client, event }, channel, ts) {
+  for (f of event.files) {
+    const file_url = f.url_private_download;
+    const file_name = f.name;
+    const title = f.title;
+    const file_path = `tmp/${f.id}.${f.filetype}`;
+    var options = {
+      "uri": file_url,
+      "headers": {
+        "Authorization": "Bearer " + process.env.SLACK_BOT_TOKEN
+      }
+    };
+    await FDRequest(options, file_path);
+
+    if (ts) {
+      const res = await client.files.upload({
+        "channels": channel,
+        "file": fs.createReadStream(file_path),
+        "filename": file_name,
+        "title": title,
+        "thread_ts": ts
+      });
+    } else {
+      const res = await client.files.upload({
+        "channels": channel,
+        "file": fs.createReadStream(file_path),
+        "filename": file_name,
+        "title": title
+      });
+    }
+    try {
+      fs.unlinkSync(file_path);
+      logger.debug(`file ${file_path} deleted`);
+    } catch (error) {
+      logger.debug(error);
+    }
+  }
 }
 
 // thread(TA->DM)
@@ -109,6 +154,10 @@ async function parseThread({ logger, client, event }) {
       return;
     }
     await redirectMessage({ client, logger }, user[0], event.text, null);
+    if (event.files) {
+      // file transport
+      await fileDownload({ logger, client, event }, user[0], null);
+    }
     await sendReaction({ logger, client, event });
   }
 }
@@ -168,7 +217,20 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
     }).catch((e) => logger.debug(e));
     if (messages["messages"] && messages["messages"][0]) {
       // テキストの行頭に質問者をつけているので、これでmatchするはず
-      logger.debug(messages["messages"][0]["text"]);
+      logger.debug(messages["messages"][0]);
+      /*const reactions = messages["messages"][0]["reactions"];
+      if (reactions) {
+        const progress = reactions.filter((item) => {
+          if (item.name === "対応中")
+            return true;
+        });
+        if (!progress) {
+          return;
+        }
+      } else {
+        // reactionがない場合は無視
+        return;
+      }*/
       const user_id = messages["messages"][0]["text"].match(/<@([0-9a-zA-Z]*)>/)[1];
       const ts = messages["messages"][0]["ts"];
       if (user_id && user_id[1]) {
@@ -691,18 +753,20 @@ app.event("workflow_step_execute", async ({ logger, client, event }) => {
 // リダイレクト機能
 async function redirectMessage({ client, logger }, channel, text, ts) {
   // 多分ts==nullならいい感じにしてくれるけど、条件分岐を設定しておく
-  let txt = text || "送信できないデータ(画像/ファイル)";
+  if (!text) {
+    return;
+  }
   if (ts) {
     const result = await client.chat.postMessage({
       "channel": channel,
-      "text": txt,
+      "text": text,
       "thread_ts": ts
     }).catch((e) => logger.debug(e));
     return result;
   } else {
     const result = await client.chat.postMessage({
       "channel": channel,
-      "text": txt
+      "text": text
     }).catch((e) => logger.debug(e));
     return result;
   }
@@ -853,6 +917,22 @@ function writeConfig(filename, json_object) {
   fs.writeFileSync(`./config/${filename}`, JSON.stringify(json_object, null, 2));
 }
 
+// utility
+async function FDRequest(param, file_path) {
+  return new Promise((resolve, reject) => {
+    let file = fs.createWriteStream(file_path);
+    let stream = request.get(param)
+      .pipe(file)
+      .on("finish", () => {
+        console.log(`file ${file_path} download complete`);
+        resolve();
+      })
+      .on("error", (error) => {
+        reject(error);
+      });
+  });
+}
+
 // health check
 receiver.app.get("/", (_req, res) => {
   res.send("Bolt App is running!");
@@ -873,7 +953,7 @@ receiver.app.get("/", (_req, res) => {
     ts_user = readConfig("ts_user.json");
   }
   if (existsConfig("allow_channels.json")) {
-    console.log("allow_channels lado");
+    console.log("allow_channels load");
     allow_channels = readConfig("allow_channels.json");
   }
 })();
