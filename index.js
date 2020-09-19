@@ -241,9 +241,9 @@ async function openModal({ logger, client, body, ack }) {
   try {
     logger.debug("openModal: " + JSON.stringify(body, null, 2));
     const channels_options = generateChannelSelectBlock(body.user.id);
-    logger.debug("options: " + JSON.stringify(options, null, 2));
+    logger.debug("options: " + JSON.stringify(channels_options, null, 2));
     const blocks = generateModalBlock(channels_options);
-
+    logger.debug("blocks: " + JSON.stringify(blocks, null, 2));
     const res = await client.views.open(
       {
         "trigger_id": body.trigger_id,
@@ -273,13 +273,14 @@ async function openModal({ logger, client, body, ack }) {
     logger.debug("views.open response: " + JSON.stringify(res, null, 2));
     await ack();
   } catch (e) {
-    logger.error("views.open error: " + JSON.stringify(e, null, 2));
+    console.log(e.message);
+    logger.error("views.open error: " + e.message);
     await ack(` :x: Failed to open modal due to *${e.code}* ...`);
   }
 }
 
 function generateModalBlock(channels_options) {
-  if (channel_options.length === 1) {
+  if (channels_options.length === 1) {
     return [
       {
         "type": "input",
@@ -864,12 +865,15 @@ receiver.app.get("/", (_req, res) => {
   await setBotID(app.client);
 
   if (existsConfig("channels.json")) {
+    console.log("channels load");
     channel_table = readConfig("channels.json");
   }
   if (existsConfig("ts_user.json")) {
+    console.log("ts_user load");
     ts_user = readConfig("ts_user.json");
   }
   if (existsConfig("allow_channels.json")) {
+    console.log("allow_channels lado");
     allow_channels = readConfig("allow_channels.json");
   }
 })();
