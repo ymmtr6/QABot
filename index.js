@@ -81,23 +81,27 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
       return ts_user[key].channel === channel_id;
     });
     if (!users || users.length === 0) {
-      ack("未対応: 0人, 対応中: 0人");
+      say("未対応: 0人, 対応中: 0人");
       return;
     }
-    const non_progress = Object.keys(users).filter((key) => {
-      return users[key].in_progress
+    const in_progress = Object.keys(ts_user).filter((key) => {
+      return ts_user[key].channel === channel_id && ts_user[key].in_progress;
     });
-    const in_progress = Object.keys(users).filter((key) => {
-      return !users[key].in_progress
+    const non_progress = Object.keys(ts_user).filter((key) => {
+      return ts_user[key].channel === channel_id && !ts_user[key].in_progress
     });
-    let str = `未対応: ${non_progress.length}人, 対応中: ${in_progress}人\n`;
-    Object.keys(non_progress).forEach((key) => {
-      str += `https://kindai-info.slack.com/archives/${channel_id}/p${non_progress[key].replace(".", "")}\n`;
+    let str = `未対応: ${non_progress.length}人, 対応中: ${in_progress.length}人\n`;
+    non_progress.forEach((item) => {
+      let ts = ts_user[item].ts
+      ts = ts.replace(/\./, "");
+      str += `https://kindai-info.slack.com/archives/${channel_id}/p${ts}\n`;
     });
-    Object.keys(in_progress).forEach((key) => {
-      str += `https://kindai-info.slack.com/archives/${channel_id}/p${in_progress[key].replace(".", "")}\n`;
+    in_progress.forEach((item) => {
+      let ts = ts_user[item].ts
+      ts = ts.replace(/\./, "");
+      str += `https://kindai-info.slack.com/archives/${channel_id}/p${ts}\n`;
     });
-    ack(str);
+    say(str);
   } else if (~event.text.indexOf("ranking")) {
     const channel_id = event.channel;
     if (channel_table.indexOf(channel_id) === -1) {
@@ -105,11 +109,16 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
     }
     const log_file = `ranking-${channel_id}.json`;
     if (existsConfig(log_file)) {
-      ack(fs.readFileSync(log_file));
+      say("```" + fs.readFileSync("./config/" + log_file).toString() + "```");
     } else {
       logger.debug(log_file + " is not found.");
       return;
     }
+  } else {
+    const message = "QABot version:1.3 (2020/09/22) \n"
+      + "\n `@QABot status` 未対応／未完了の質問一覧を出力"
+      + "\n `@QABot ranking` 対応回数ランキングを出力";
+    say(message);
   }
 });
 
@@ -136,7 +145,7 @@ async function parseDM({ logger, client, event, say }) {
   if (event.files) {
     await fileDownload({ logger, client, event }, dm_info.channel, dm_info.ts);
   }
-  await sendReaction({ logger, client, event });
+  await sendReaction({ logger, client, event }, "white_check_mark");
 }
 
 async function fileDownload({ logger, client, event }, channel, ts) {
@@ -197,7 +206,7 @@ async function parseThread({ logger, client, event }) {
       // file transport
       await fileDownload({ logger, client, event }, user[0], null);
     }
-    await sendReaction({ logger, client, event });
+    await sendReaction({ logger, client, event }, "white_check_mark");
   }
 }
 
@@ -587,21 +596,32 @@ async function handleViewSubmission({ logger, client, body, ack }) {
   }
 
   // ユーザを追加
-  if (question_type === "その他" || question_type === "匿名") {
-    question_type = "";
-  }
+
+  // すでに対応中の質問がある場合
   if (ts_user[user]) {
     const dm_info = ts_user[user];
-    await redirectMessage({ client, logger }, dm_info.channel, question_text, dm_info.ts);
     await client.chat.postMessage({
       channel: user,
-      text: question_text
-    }).catch((e) => logger.debug(e));
-    return;
+      text: "[自動応答]新規の質問を受け付けたため、過去の質問対応は終了します。"
+    });
+    await client.chat.postMessage({
+      channel: dm_info.channel,
+      text: "[自動応答]このユーザによる新規質問が投稿されたため、このスレッドは閉じられました。",
+      thread_ts: dm_info.ts
+    });
+    await client.reactions.add({
+      "channel": dm_info.channel,
+      "name": "対応済2",
+      "timestamp": dm_info.ts
+    });
+    delete ts_user[user];
   }
   let pre_text = `<@${user}>さんが質問を投稿しました\n`;
   if (question_type === "匿名") {
     pre_text = "";
+  }
+  if (question_type !== "その他" && question_type !== "匿名") {
+    question_text = `[${question_type}] ` + question_text;
   }
   const suf_text = "\nスレッドを介してやりとりするには :対応中: でリアクションしてください。";
   const result = await client.chat.postMessage({
@@ -893,10 +913,10 @@ function generateQuestionBlock(prefix_text, main_text, suffix_text) {
 }
 
 // 送信済リアクション
-async function sendReaction({ logger, client, event }) {
+async function sendReaction({ logger, client, event }, reaction_name) {
   const result = await client.reactions.add({
     "channel": event.channel,
-    "name": "white_check_mark",
+    "name": reaction_name,
     "timestamp": event.event_ts
   }).catch((e) => logger.debug(e));
 }
