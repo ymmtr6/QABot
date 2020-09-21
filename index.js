@@ -71,6 +71,38 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
     } else {
       say(`USAGE : @QABot announce [channel_id]`);
     }
+  } else if (~event.text.indexOf("status")) {
+    const channel_id = event.channel;
+    // チャンネル登録者チェック
+    if (channel_table.indexOf(channel_id) === -1) {
+      return;
+    }
+    const users = Object.keys(ts_user).filter((key) => {
+      return ts_user[key].channel === channel_id;
+    });
+    if (!users || users.length === 0) {
+      ack("未対応: 0人, 対応中: 0人");
+      return;
+    }
+    const non_progress = Object.keys(users).filter((key) => {
+      return users[key].in_progress
+    });
+    const in_progress = Object.keys(users).filter((key) => {
+      return !users[key].in_progress
+    });
+    let str = `未対応: ${non_progress.length}人, 対応中: ${in_progress}人\n`;
+    Object.keys(non_progress).forEach((key) => {
+      str += `https://kindai-info.slack.com/archives/${channel_id}/p${non_progress[key].replace(".", "")}\n`;
+    });
+    Object.keys(in_progress).forEach((key) => {
+      str += `https://kindai-info.slack.com/archives/${channel_id}/p${in_progress[key].replace(".", "")}\n`;
+    });
+    ack(str);
+  } else if (~event.text.indexOf("ranking")) {
+    const channel_id = event.channel;
+    if (channel_table.indexOf(channel_id) === -1) {
+      return;
+    }
   }
 });
 
