@@ -103,6 +103,13 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
     if (channel_table.indexOf(channel_id) === -1) {
       return;
     }
+    const log_file = `ranking-${channel_id}.json`;
+    if (existsConfig(log_file)) {
+      ack(fs.readFileSync(log_file));
+    } else {
+      logger.debug(log_file + " is not found.");
+      return;
+    }
   }
 });
 
