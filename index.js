@@ -1,5 +1,6 @@
 const config = require("dotenv").config().parsed;
 
+const version = "QABot version:1.3.1 (2020/10/02) \n"
 for (const k in config) {
   process.env[k] = config[k];
 }
@@ -115,7 +116,7 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
       return;
     }
   } else {
-    const message = "QABot version:1.3 (2020/09/22) \n"
+    const message = version
       + "\n `@QABot status` 未対応／未完了の質問一覧を出力"
       + "\n `@QABot ranking` 対応回数ランキングを出力";
     say(message);
@@ -216,7 +217,46 @@ app.event("reaction_added", async ({ logger, client, event }) => {
   const user = Object.keys(ts_user).filter((key) => {
     return ts_user[key].ts === event.item.ts;
   });
+  if (event.reaction === "完了") {
+    await client.reactions.add({
+      "channel": event.item.channel,
+      "name": "対応済2",
+      "timestamp": event.item.ts
+    }).catch((e) => { logger.debug("対応済 :" + JSON.stringify(e, null, 2)) });
+    if (ts_user[user[0]]) {
+      await client.chat.postMessage({
+        channel: ts_user[user[0]].channel,
+        text: "[対応終了] 以降のスレッドは転送されません。",
+        thread_ts: ts_user[user[0]].ts
+      }).catch((e) => logger.debug(e));
+      await client.chat.postMessage({
+        channel: user[0],
+        text: "[対応終了]以降のやりとりは転送されません。"
+      }).catch((e) => logger.debug(e));
 
+      delete ts_user[user[0]];
+      writeConfig("ts_user.json", ts_user);
+      logger.debug("update_ts_user :" + JSON.stringify(ts_user, null, 2));
+    } else {
+      logger.debug("not found user: " + user[0]);
+    }
+  } else if (event.reaction === "削除") {
+    const messages = await client.conversations.replies({
+      channel: event.item.channel,
+      ts: event.item.ts
+    }).catch((e) => logger.debug(e));
+    if (messages["messages"] && messages["messages"][0]) {
+      const user_id = messages["messages"][0]["text"].match(/<@([0-9a-zA-Z]*)>/)[1];
+      if (!user_id) {
+        // delete
+        await client.chat.delete({
+          token: process.env.SLACK_BOT_TOKEN,
+          channel: event.item.channel,
+          ts: event.item.ts
+        }).catch((e) => logger.debug(e));
+      }
+    }
+  }
   if (user[0]) {
     if (event.reaction === "対応中" && !ts_user[user[0]].in_progress) {
       await client.chat.postMessage({
@@ -226,8 +266,7 @@ app.event("reaction_added", async ({ logger, client, event }) => {
       }).catch((e) => logger.debug(e));
       ts_user[user[0]].in_progress = true;
       writeConfig("ts_user.json", ts_user);
-    }
-    if (event.reaction === "対応済2" && ts_user[user[0]]) {
+    } else if (event.reaction === "対応済2" && ts_user[user[0]]) {
       await client.chat.postMessage({
         channel: ts_user[user[0]].channel,
         text: "[対応終了]以降のスレッドは転送されません。",
@@ -248,6 +287,19 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
   logger.debug("reaction_removed event payload:\n\n" + JSON.stringify(event, null, 2) + "\n");
   const user = Object.keys(ts_user).filter((key) => { return ts_user[key].ts == event.item.ts });
   if (event.reaction === "対応中" && ts_user[user[0]]) {
+    // メッセージのリアクションを取得
+    const messages = await client.conversations.replies({
+      channel: event.item.channel,
+      ts: event.item.ts
+    });
+    if (messages["messages"] && messages["messages"][0]) {
+      const reactions = messages["messages"][0]["reactions"];
+      const progress = reactions.filter((item) => { return item.name === "対応中" });
+      if (progress.length !== 0) {
+        // 誰かが対応中の場合は対応しない
+        return;
+      }
+    }
     // 対応中を取り消した場合()
     await client.chat.postMessage({
       channel: ts_user[user[0]].channel,
@@ -266,36 +318,32 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
     if (messages["messages"] && messages["messages"][0]) {
       // テキストの行頭に質問者をつけているので、これでmatchするはず
       logger.debug(messages["messages"][0]);
-      /*const reactions = messages["messages"][0]["reactions"];
-      if (reactions) {
-        const progress = reactions.filter((item) => {
-          if (item.name === "対応中")
-            return true;
-        });
-        if (!progress) {
-          return;
-        }
-      } else {
-        // reactionがない場合は無視
-        return;
-      }*/
       const user_id = messages["messages"][0]["text"].match(/<@([0-9a-zA-Z]*)>/)[1];
       const ts = messages["messages"][0]["ts"];
-      if (user_id && user_id[1]) {
+      const reactions = messages["messages"][0]["reactions"];
+      const finish = reactions.filter((item) => { return item.name === "対応済2" });
+
+      if (ts_user[user_id] || ts != event.item.ts || finish.length !== 0) {
+        logger.debug(user_id);
+        // すでにどこかで対応中の場合は無視
+        return;
+      }
+      if (user_id) {
         ts_user[user_id] = { user: user_id, ts: event.item.ts, channel: event.item.channel, in_progress: true };
         writeConfig("ts_user.json", ts_user);
+
+        // threadに投稿
+        await client.chat.postMessage({
+          channel: event.item.channel,
+          text: "[対応再開] :対応済2: が取り消されたので、スレッドの転送を再開します。",
+          thread_ts: event.item.ts
+        }).catch((e) => logger.debug(e));
+        // userに投稿
+        await client.chat.postMessage({
+          channel: user_id,
+          text: "[自動応答] 応答が再開されました。",
+        }).catch((e) => logger.debug(e));
       }
-      // threadに投稿
-      await client.chat.postMessage({
-        channel: event.item.channel,
-        text: "[対応再開] :対応済2: が取り消されたので、スレッドの転送を再開します。",
-        thread_ts: event.item.ts
-      }).catch((e) => logger.debug(e));
-      // userに投稿
-      await client.chat.postMessage({
-        channel: user_id,
-        text: "[自動応答] 応答が再開されました。",
-      }).catch((e) => logger.debug(e));
     }
   }
 });
@@ -333,14 +381,6 @@ app.shortcut("qabot_v2_modal", async ({ logger, client, body, ack }) => {
   await openModal({ logger, client, body, ack });
 });
 
-// workflow steps
-app.action({ type: 'workflow_step_edit', callback_id: "qabot_v2_workflow_edit" }, async ({ body, ack, client, logger }) => {
-  logger.debug("workflow_step_edit: " + JSON.stringify(body, null, 2));
-  // Acknowledge the event
-  await ack();
-  // Open the configuration modal using `views.open`
-  await openWorkflowModal({ logger, client, ack, body });
-});
 
 app.view("qabot_v2_modal_callback", async ({ logger, client, body, ack }) => {
   await handleViewSubmission({ logger, client, body, ack });
@@ -603,18 +643,22 @@ async function handleViewSubmission({ logger, client, body, ack }) {
     await client.chat.postMessage({
       channel: user,
       text: "[自動応答]新規の質問を受け付けたため、過去の質問対応は終了します。"
-    });
+    }).catch((e) => { logger.debug(e) });
     await client.chat.postMessage({
       channel: dm_info.channel,
       text: "[自動応答]このユーザによる新規質問が投稿されたため、このスレッドは閉じられました。",
       thread_ts: dm_info.ts
-    });
+    }).catch((e) => { logger.debug(e) });
     await client.reactions.add({
       "channel": dm_info.channel,
       "name": "対応済2",
       "timestamp": dm_info.ts
-    });
-    delete ts_user[user];
+    }).catch((e) => { logger.debug("対応済 :" + JSON.stringify(e, null, 2)) });
+    try {
+      delete ts_user[user];
+    } catch (e) {
+      logger.debug(e);
+    }
   }
   let pre_text = `<@${user}>さんが質問を投稿しました\n`;
   if (question_type === "匿名") {
@@ -629,6 +673,7 @@ async function handleViewSubmission({ logger, client, body, ack }) {
     text: pre_text + question_text + suf_text,
     blocks: generateQuestionBlock(pre_text, question_text, suf_text)
   }).catch((e) => logger.debug(e));
+  // ts_userを上書き
   ts_user[user] = {
     user: user,
     ts: result.ts,
@@ -641,173 +686,6 @@ async function handleViewSubmission({ logger, client, body, ack }) {
     text: question_text + "\n[自動応答]質問を受け付けました。返信をお待ちください。"
   }).catch((e) => logger.debug(e));
 }
-
-// workflow用のモーダル
-async function openWorkflowModal({ logger, client, ack, body }) {
-  try {
-    const res = await client.views.open({
-      "trigger_id": body.trigger_id,
-      view: {
-        type: "workflow_step",
-        callback_id: "qabot_v2_workflow",
-        blocks: [
-          {
-            "type": "input",
-            "block_id": "qabot_input_channel_id",
-            "element": {
-              "type": "plain_text_input",
-              "action_id": "channel_id"
-            },
-            "label": {
-              "type": "plain_text",
-              "text": "質問チャンネルのID",
-              "emoji": true
-            }
-          },
-          {
-            "type": "input",
-            "block_id": "qabot_input_questioner",
-            "element": {
-              "type": "plain_text_input",
-              "action_id": "from"
-            },
-            "label": {
-              "type": "plain_text",
-              "text": "質問者",
-              "emoji": true
-            }
-          },
-          {
-            "type": "input",
-            "block_id": "qabot_input_qtype",
-            "element": {
-              "type": "plain_text_input",
-              "action_id": "q_type"
-            },
-            "label": {
-              "type": "plain_text",
-              "text": "質問の種類",
-              "emoji": true
-            }
-          },
-          {
-            "type": "input",
-            "block_id": "qabot_input_values",
-            "element": {
-              "type": "plain_text_input",
-              "action_id": "question",
-              "multiline": true
-            },
-            "label": {
-              "type": "plain_text",
-              "text": "質問内容",
-              "emoji": true
-            }
-          }
-        ]
-      }
-    });
-  } catch (e) {
-
-  }
-}
-
-// workflowのview更新
-app.view("qabot_v2_workflow", async ({ logger, client, view, body, ack }) => {
-  logger.debug("qabot_workflow view : " + JSON.stringify(body, null, 2) + "\n");
-  await ack();
-  let workflowEditId = body.workflow_step.workflow_step_edit_id;
-  let from = view.state.values.qabot_input_questioner.from;
-  let type = view.state.values.qabot_input_qtype.q_type;
-  let question = view.state.values.qabot_input_values.question;
-  let channel_id = view.state.values.qabot_input_channel_id.channel_id;
-
-  await client.workflows.updateStep({
-    workflow_step_edit_id: workflowEditId,
-    inputs: {
-      channel_id: { value: (channel_id || "") },
-      from: { value: (from || "") },
-      type: { value: (type || "") },
-      question: { value: (question || "") }
-    },
-    outputs: [
-      {
-        name: "channel_id",
-        type: "text",
-        label: "Channel"
-      },
-      {
-        name: "from",
-        type: "text",
-        label: "Questioner"
-      },
-      {
-        name: "type",
-        type: "text",
-        label: "Question Type"
-      },
-      {
-        name: "question",
-        type: "text",
-        label: "Question"
-      }
-    ]
-  });
-});
-
-// workflowの実行
-app.event("workflow_step_execute", async ({ logger, client, event }) => {
-  logger.debug("workflow_step_execute: " + JSON.stringify(event, null, 2) + "\n");
-  // ここで実行処理
-  let workflowExecuteId = event.workflow_step.workflow_step_execute_id;
-  let inputs = event.workflow_step.inputs
-
-  logger.debug("inputs: " + JSON.stringify(inputs, null, 2) + "\n");
-
-  await client.workflows.stepCompleted({
-    workflow_step_execute_id: workflowExecuteId,
-    outputs: {
-      channel_id: inputs.channel_id.value,
-      name: inputs.from.value,
-      question: inputs.question.value,
-      type: inputs.question.type
-    }
-  });
-  // ユーザ追加処理
-  const channel_id = inputs.channel_id.value.value;
-  const user = inputs.from.value.value.match(/<@([0-9a-zA-Z]*)>/)[1];
-  const type = inputs.type.value.value;
-  let question_text = `[${inputs.type.value.value}]\n${inputs.question.value.value}`;
-  if (!type || type === "" || type === "匿名" || type === "None" || type === "その他" || type == null) {
-    question_text = `${inputs.question.value.value}`
-  }
-
-  // もしすでに質問対応を行っていた場合
-  if (ts_user[user]) {
-    const dm_info = ts_user[user];
-    await redirectMessage({ client, logger }, dm_info.channel, question_text, dm_info.ts);
-    await client.chat.postMessage({
-      channel: user, text: question_text
-    }).catch((e) => logger.debug(e));
-    return;
-  }
-  let pre_text = `<@${user}>さんが質問を投稿しました\n`;
-  if (type == "匿名") {
-    pre_text = "";
-  }
-  const suf_text = "\nスレッドを介してやりとりするには :対応中: でリアクションしてください。";
-  const result = await client.chat.postMessage({ channel: channel_id, text: pre_text + question_text + suf_text, blocks: generateQuestionBlock(pre_text, question_text, suf_text) }).catch((e) => logger.debug(e));
-  //logger.debug(question_text);
-  // 質問受付リストに登録
-  ts_user[user] = { user: user, ts: result.ts, channel: channel_id, in_progress: false };
-  // config
-  writeConfig("ts_user.json", ts_user);
-  //logeer.debug(JSON.stringify(result, null, 2));
-  await client.chat.postMessage({
-    channel: user, text: question_text
-  }).catch((e) => logger.debug(e));
-  await client.chat.postMessage({ channel: user, text: "[自動応答]質問を受け付けました。返信をお待ちください。" }).catch((e) => logger.debug(e));
-});
 
 // リダイレクト機能
 async function redirectMessage({ client, logger }, channel, text, ts) {
