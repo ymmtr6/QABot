@@ -115,6 +115,12 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
       logger.debug(log_file + " is not found.");
       return;
     }
+  } else if (~event.text.indexOf("feedback")) {
+    await say({
+      "blocks": generateFeedBack(event.channel, event.ts, "Feedback sample: フィードバックをお願いします(5点満点)")
+    }).catch((e) => {
+      logger.debug("message error: " + JSON.stringify(e, null, 2));
+    });
   } else {
     const message = version
       + "\n `@QABot status` 未対応／未完了の質問一覧を出力"
@@ -240,22 +246,14 @@ app.event("reaction_added", async ({ logger, client, event }) => {
     } else {
       logger.debug("not found user: " + user[0]);
     }
-  } else if (event.reaction === "削除") {
-    const messages = await client.conversations.replies({
+    return;
+  } else if (event.reaction === "delete" && event.user === "W015G22G970") {
+    await client.chat.delete({
+      token: process.env.SLACK_BOT_TOKEN,
       channel: event.item.channel,
       ts: event.item.ts
     }).catch((e) => logger.debug(e));
-    if (messages["messages"] && messages["messages"][0]) {
-      const user_id = messages["messages"][0]["text"].match(/<@([0-9a-zA-Z]*)>/)[1];
-      if (!user_id) {
-        // delete
-        await client.chat.delete({
-          token: process.env.SLACK_BOT_TOKEN,
-          channel: event.item.channel,
-          ts: event.item.ts
-        }).catch((e) => logger.debug(e));
-      }
-    }
+    return;
   }
   if (user[0]) {
     if (event.reaction === "対応中" && !ts_user[user[0]].in_progress) {
@@ -276,11 +274,20 @@ app.event("reaction_added", async ({ logger, client, event }) => {
         channel: user[0],
         text: "[対応終了]以降のやりとりは転送されません。",
       }).catch((e) => logger.debug(e));
+      await client.chat.postMessage({
+        channel: user[0],
+        text: "よろしければ、今回の対応のフィードバックをお願いします。(5点満点)",
+        blocks: generateFeedBack(ts_user[user[0]].channel, ts_user[user[0]].ts, "よろしければ、今回の対応のフィードバックをお願いします。(5点満点)")
+      }).catch((e) => logger.debug(e));
       delete ts_user[user[0]];
       writeConfig("ts_user.json", ts_user);
     }
   }
 });
+
+app.error((error) => {
+  console.error(JSON.stringify(error));
+})
 
 // reaction削除
 app.event("reaction_removed", async ({ logger, client, event, say }) => {
@@ -346,6 +353,24 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
       }
     }
   }
+});
+
+// interactive
+app.action(/feedback_button_*/, async ({ ack, action, respond, say, client, logger }) => {
+  logger.debug("action feedback_button: \n" + JSON.stringify(action, null, 2));
+  await ack();
+  await respond("フィードバックを受け取りました。ありがとうございます！");
+
+  // action_idの最後の一文字がフィードバックの点数
+  const eval = action.action_id.split("_")[2];
+  const value = JSON.parse(action.value);
+
+  const reaction = await client.reactions.add({
+    "channel": value.channel,
+    "name": eval,
+    "timestamp": value.ts
+  }).catch((e) => logger.debug(JSON.stringify(e, null, 2)));
+
 });
 
 app.command("/qabot_load", async ({ logger, client, body, ack }) => {
@@ -788,6 +813,79 @@ function generateQuestionBlock(prefix_text, main_text, suffix_text) {
     }
   );
   return blocks;
+}
+
+function generateFeedBack(channel_id, ts, text) {
+  const action_value = JSON.stringify({
+    channel: channel_id,
+    ts: ts
+  });
+  return [{
+    "type": "section",
+    "text": {
+      "type": "mrkdwn",
+      "text": text
+    },
+    "block_id": "feedback_description"
+  },
+  {
+    "type": "actions",
+    "block_id": "feedback_button",
+    "elements": [
+      {
+        "type": "button",
+        "text": {
+          "type": "plain_text",
+          "emoji": true,
+          "text": "1(悪い)"
+        },
+        "style": "danger",
+        "value": action_value,
+        "action_id": "feedback_button_one"
+      },
+      {
+        "type": "button",
+        "text": {
+          "type": "plain_text",
+          "emoji": true,
+          "text": "2"
+        },
+        "value": action_value,
+        "action_id": "feedback_button_two"
+      },
+      {
+        "type": "button",
+        "text": {
+          "type": "plain_text",
+          "emoji": true,
+          "text": "3(普通)"
+        },
+        "value": action_value,
+        "action_id": "feedback_button_three"
+      },
+      {
+        "type": "button",
+        "text": {
+          "type": "plain_text",
+          "emoji": true,
+          "text": "4"
+        },
+        "value": action_value,
+        "action_id": "feedback_button_four"
+      },
+      {
+        "type": "button",
+        "text": {
+          "type": "plain_text",
+          "emoji": true,
+          "text": "5(良い)"
+        },
+        "style": "primary",
+        "value": action_value,
+        "action_id": "feedback_button_five"
+      },
+    ]
+  }];
 }
 
 // 送信済リアクション
