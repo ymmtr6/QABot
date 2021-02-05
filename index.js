@@ -1,6 +1,10 @@
 const config = require("dotenv").config().parsed;
 
-const version = "QABot version:1.3.1 (2020/10/02) \n"
+const version = "QABot version:1.3.2 (2020/10/06) \n"
+
+// *************************
+// 初期設定
+// ************************
 for (const k in config) {
   process.env[k] = config[k];
 }
@@ -27,6 +31,10 @@ const app = new App({
   processBeforeResponse
 });
 
+// *****************************************
+// 変数
+// *****************************************
+
 // bot id
 let bot_id = process.env.BOT_ID;
 
@@ -42,10 +50,15 @@ let ts_user = {};
 // allow_channels = { user_id: {name: channel_name, id: channel_id}, ...};
 let allow_channels = {};
 
-// メッセージ応答
+// *********************************************
+// 処理部
+// *********************************************
+
+// メンション応答
 app.event("app_mention", async ({ logger, client, event, say }) => {
   logger.debug("app_mention event payload:\n" + JSON.stringify(event, null, 2) + "\n");
   if (~event.text.indexOf("leave")) {
+    // チャンネルから退室
     if (channel_table.indexOf(event.channel) !== -1) {
       channel_table = channel_table.filter(c => c !== event.channel);
       writeConfig("channels.json", channel_table);
@@ -55,6 +68,7 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
       "channel": event.channel
     });
   } else if (~event.text.indexOf("setup")) {
+    // 質問受付チャンネルとして登録
     if (channel_table.indexOf(event.channel) !== -1) {
       say(`channel_id(${event.channel})は既に質問受付チャンネルとして登録されています。`);
     } else {
@@ -63,6 +77,7 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
       writeConfig("channels.json", channel_table);
     }
   } else if (~event.text.indexOf("announce")) {
+    // アナウンスチャンネルとして登録(未実装)
     const inputs = event.text.split(" ");
     if (inputs[2] && channel_table.indexOf(inputs[2]) !== -1) {
       announce_channel[inputs[2]] = event.channel;
@@ -73,6 +88,7 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
       say(`USAGE : @QABot announce [channel_id]`);
     }
   } else if (~event.text.indexOf("status")) {
+    // チャンネルでの対応中／未対応をリスト表示
     const channel_id = event.channel;
     // チャンネル登録者チェック
     if (channel_table.indexOf(channel_id) === -1) {
@@ -104,6 +120,7 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
     });
     say(str);
   } else if (~event.text.indexOf("ranking")) {
+    // チャンネルの対応者リストを生成
     const channel_id = event.channel;
     if (channel_table.indexOf(channel_id) === -1) {
       return;
@@ -116,12 +133,14 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
       return;
     }
   } else if (~event.text.indexOf("feedback")) {
+    // フィードバックサンプルを表示
     await say({
       "blocks": generateFeedBack(event.channel, event.ts, "Feedback sample: フィードバックをお願いします(5点満点)")
     }).catch((e) => {
       logger.debug("message error: " + JSON.stringify(e, null, 2));
     });
   } else {
+    // どれでもない場合
     const message = version
       + "\n `@QABot status` 未対応／未完了の質問一覧を出力"
       + "\n `@QABot ranking` 対応回数ランキングを出力";
@@ -129,7 +148,7 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
   }
 });
 
-// メッセージ応答
+// メッセージハンドリング(DMやスレッドの投稿)
 app.event("message", async ({ logger, client, event, say }) => {
   logger.debug("message event payload: \n" + JSON.stringify(event, null, 2) + "\n");
 
@@ -155,6 +174,7 @@ async function parseDM({ logger, client, event, say }) {
   await sendReaction({ logger, client, event }, "white_check_mark");
 }
 
+// フィルダウンロード(&投稿)
 async function fileDownload({ logger, client, event }, channel, ts) {
   for (f of event.files) {
     const file_url = f.url_private_download;
@@ -217,6 +237,7 @@ async function parseThread({ logger, client, event }) {
   }
 }
 
+// リアクション追加を検知
 app.event("reaction_added", async ({ logger, client, event }) => {
   logger.debug("reaction_added event payload:\n" + JSON.stringify(event, null, 2) + "\n");
 
@@ -285,6 +306,7 @@ app.event("reaction_added", async ({ logger, client, event }) => {
   }
 });
 
+// appエラー検知
 app.error((error) => {
   console.error(JSON.stringify(error));
 })
@@ -355,7 +377,7 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
   }
 });
 
-// interactive
+// フィードバック機能
 app.action(/feedback_button_*/, async ({ ack, action, respond, say, client, logger }) => {
   logger.debug("action feedback_button: \n" + JSON.stringify(action, null, 2));
   await ack();
@@ -373,6 +395,7 @@ app.action(/feedback_button_*/, async ({ ack, action, respond, say, client, logg
 
 });
 
+// 質問先設定
 app.command("/qabot_load", async ({ logger, client, body, ack }) => {
   logger.debug("command qabot_load :" + JSON.stringify(body, null, 2));
   const args = body.text.split(" ");
@@ -401,12 +424,12 @@ app.command("/qabot_load", async ({ logger, client, body, ack }) => {
   }
 });
 
-// shortcut
+// shortcut(質問モーダル)
 app.shortcut("qabot_v2_modal", async ({ logger, client, body, ack }) => {
   await openModal({ logger, client, body, ack });
 });
 
-
+// modal callback
 app.view("qabot_v2_modal_callback", async ({ logger, client, body, ack }) => {
   await handleViewSubmission({ logger, client, body, ack });
 });
@@ -454,6 +477,7 @@ async function openModal({ logger, client, body, ack }) {
   }
 }
 
+// モーダルの中身
 function generateModalBlock(channels_options) {
   if (channels_options.length === 1) {
     return [
@@ -733,18 +757,8 @@ async function redirectMessage({ client, logger }, channel, text, ts) {
     return result;
   }
 }
-/*
-[
-                {
-                  "text": {
-                    "type": "plain_text",
-                    "text": "情報実習2",
-                    "emoji": true
-                  },
-                  "value": "value-0"
-                }
-              ]
-*/
+
+// 質問先チャンネル情報を作成
 function generateChannelSelectBlock(user_id) {
   const options = [];
   if (!allow_channels[user_id]) {
@@ -815,6 +829,7 @@ function generateQuestionBlock(prefix_text, main_text, suffix_text) {
   return blocks;
 }
 
+// フィードバックブロックの生成
 function generateFeedBack(channel_id, ts, text) {
   const action_value = JSON.stringify({
     channel: channel_id,
@@ -915,6 +930,7 @@ async function getPrivateChanenlList({ client }) {
   return client.users.conversations(param).then(pageLoaded);
 }
 
+// チャンネルに所属しているメンバーを取得
 async function getMembers({ client }, channel_id) {
   const param = {
     "channel": channel_id,
@@ -932,6 +948,7 @@ async function getMembers({ client }, channel_id) {
   return client.conversations.members(param).then(pageLoaded);
 }
 
+// bot idを取得
 async function setBotID(client) {
   const test = await client.auth.test({
     token: process.env.SLACK_BOT_TOKEN
@@ -940,19 +957,22 @@ async function setBotID(client) {
   bot_id = test.user_id;
 }
 
+// config存在確認
 function existsConfig(filename) {
   return fs.existsSync(`./config/${filename}`);
 }
 
+// config読み込み
 function readConfig(filename) {
   return JSON.parse(fs.readFileSync(`./config/${filename}`));
 }
 
+// config書き出し
 function writeConfig(filename, json_object) {
   fs.writeFileSync(`./config/${filename}`, JSON.stringify(json_object, null, 2));
 }
 
-// utility
+// file download
 async function FDRequest(param, file_path) {
   return new Promise((resolve, reject) => {
     let file = fs.createWriteStream(file_path);
