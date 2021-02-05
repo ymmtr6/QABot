@@ -4,12 +4,12 @@
   "description": "Bolt app starter",
   "main": "index.js",
   "scripts": {
-    "local": "node_modules/.bin/nodemon index.js",
+    "local": "nodemon index.js",
     "start": "node index.js"
   },
   "repository": {
     "type": "git",
-    "url": "git@github.com:seratch/bolt-starter.git"
+    "url": "git+ssh://git@github.com/seratch/bolt-starter.git"
   },
   "keywords": [
     "Slack",
@@ -22,7 +22,7 @@
   },
   "homepage": "https://github.com/seratch/bolt-starter#readme",
   "dependencies": {
-    "@slack/bolt": "^2.4.1",
+    "@slack/bolt": "^3.1.1",
     "dotenv": "^8.2.0",
     "ejs": "^3.1.3",
     "express": "^4.17.1",
