@@ -1,6 +1,6 @@
 const config = require("dotenv").config().parsed;
 
-const version = "QABot version:1.3.2 (2020/10/06) \n"
+const version = "QABot version:1.3.5 (2021/02/05) \n"
 
 // *************************
 // 初期設定
@@ -14,21 +14,26 @@ const { LogLevel } = require("@slack/logger");
 const logLevel = process.env.SLACK_LOG_LEVEL || LogLevel.DEBUG;
 
 const express = require("express");
-const { App, ExpressReceiver } = require("@slack/bolt");
+const { App } = require("@slack/bolt");
+// socket modeでは不要
+//const { App, ExpressReceiver } = require("@slack/bolt");
 const { debug } = require("console");
 const request = require("request");
 const { title } = require("process");
 
 const processBeforeResponse = false;
-const receiver = new ExpressReceiver({
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-  processBeforeResponse
-});
+// socket modeでは不要
+// const receiver = new ExpressReceiver({
+//   signingSecret: process.env.SLACK_SIGNING_SECRET,
+//   processBeforeResponse
+// });
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   logLevel,
   receiver,
-  processBeforeResponse
+  processBeforeResponse,
+  socketMode: true,
+  appToken: process.env.SLACK_APP_TOKEN
 });
 
 // *****************************************
@@ -684,8 +689,6 @@ async function handleViewSubmission({ logger, client, body, ack }) {
     return;
   }
 
-  // ユーザを追加
-
   // すでに対応中の質問がある場合
   if (ts_user[user]) {
     const dm_info = ts_user[user];
@@ -709,6 +712,7 @@ async function handleViewSubmission({ logger, client, body, ack }) {
       logger.debug(e);
     }
   }
+  // 質問内容を投稿する
   let pre_text = `<@${user}>さんが質問を投稿しました\n`;
   if (question_type === "匿名") {
     pre_text = "";
@@ -734,6 +738,9 @@ async function handleViewSubmission({ logger, client, body, ack }) {
     channel: user,
     text: question_text + "\n[自動応答]質問を受け付けました。返信をお待ちください。"
   }).catch((e) => logger.debug(e));
+
+  // ここでWEBHOOKを使う
+
 }
 
 // リダイレクト機能
@@ -989,12 +996,13 @@ async function FDRequest(param, file_path) {
 }
 
 // health check
-receiver.app.get("/", (_req, res) => {
-  res.send("Bolt App is running!");
-});
+// receiver.app.get("/", (_req, res) => {
+//   res.send("Bolt App is running!");
+// });
 
 (async () => {
-  await app.start(process.env.PORT || 3000);
+  //await app.start(process.env.PORT || 3000);
+  await app.start();
   console.log("Bolt app is runnning!");
 
   await setBotID(app.client);
