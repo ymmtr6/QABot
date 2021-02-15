@@ -1,11 +1,13 @@
 const config = require("dotenv").config().parsed;
 
+// version明記
 const version = "QABot version:1.3.5 (2021/02/05) \n"
 
 // *************************
 // 初期設定
 // ************************
 for (const k in config) {
+  // 環境変数読み込み
   process.env[k] = config[k];
 }
 
@@ -13,25 +15,13 @@ const fs = require("fs");
 const { LogLevel } = require("@slack/logger");
 const logLevel = process.env.SLACK_LOG_LEVEL || LogLevel.DEBUG;
 
-const express = require("express");
 const { App } = require("@slack/bolt");
-// socket modeでは不要
-//const { App, ExpressReceiver } = require("@slack/bolt");
-const { debug } = require("console");
 const request = require("request");
-const { title } = require("process");
 
-const processBeforeResponse = false;
-// socket modeでは不要
-// const receiver = new ExpressReceiver({
-//   signingSecret: process.env.SLACK_SIGNING_SECRET,
-//   processBeforeResponse
-// });
+// app オブジェクト生成
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
-  logLevel,
-  receiver,
-  processBeforeResponse,
+  logLevel: logLevel,
   socketMode: true,
   appToken: process.env.SLACK_APP_TOKEN
 });
@@ -43,21 +33,25 @@ const app = new App({
 // bot id
 let bot_id = process.env.BOT_ID;
 
+// 質問対応チャンネルテーブル
 // channel_table = { channel_id: name, ... }
 let channel_table = [];
 
+// アナウンス先テーブル（未使用）
 // announce channel = { from(channel_id) : to(channel_id) , ...}
 let announce_channel = {};
 
+// 質問対応中テーブル
 // ts_user = { user_id: { user: user_id, ts: ts, channel: channel_id, in_progress: false } }
 let ts_user = {};
 
+// 質問許可テーブル
 // allow_channels = { user_id: {name: channel_name, id: channel_id}, ...};
 let allow_channels = {};
 
-// *********************************************
-// 処理部
-// *********************************************
+// ======================================
+//   メンション処理(初期設定，ステータス通知等)
+// ====================================--
 
 // メンション応答
 app.event("app_mention", async ({ logger, client, event, say }) => {
@@ -153,13 +147,19 @@ app.event("app_mention", async ({ logger, client, event, say }) => {
   }
 });
 
-// メッセージハンドリング(DMやスレッドの投稿)
+// *********************************************
+// 　　メイン処理部（メッセージリダイレクト他）
+// *********************************************
+
+// メッセージハンドリング(DMやスレッドの投稿を分類する)
 app.event("message", async ({ logger, client, event, say }) => {
   logger.debug("message event payload: \n" + JSON.stringify(event, null, 2) + "\n");
 
   if (event["channel_type"] === "im") {
+    // DMへの投稿の場合
     await parseDM({ logger, client, event }).catch((e) => logger.debug(e));
   } else if (event["channel_type"] === "channel" || event["channel_type"] === "group") {
+    // 質問チャンネルへの投稿の場合
     await parseThread({ logger, client, event }).catch((e) => logger.debug(e));
   }
 });
@@ -170,12 +170,17 @@ async function parseDM({ logger, client, event, say }) {
     //say("質問は講義チャンネルのワークフローから投稿してください。");
     return; //質問を受けていない場合、何もしない
   }
+
+  // 対応中のユーザ情報を取得
   const dm_info = ts_user[event.user];
 
+  //　redirect
   await redirectMessage({ client, logger }, dm_info.channel, event.text, dm_info.ts);
   if (event.files) {
+    // ファイルが含まれている場合は，ファイル受信→送信処理
     await fileDownload({ logger, client, event }, dm_info.channel, dm_info.ts);
   }
+  // 転送が終了したらリアクションで通知
   await sendReaction({ logger, client, event }, "white_check_mark");
 }
 
@@ -224,6 +229,7 @@ async function parseThread({ logger, client, event }) {
   if (channel_table.indexOf(event.channel) === -1) {
     return // XX_質問チャンネルでないなら、何もしない
   }
+
   // スレッドに書き込んだメッセージ && QABotが投下したメッセージ
   if (event.thread_ts && event.parent_user_id === bot_id) {
     const user = Object.keys(ts_user).filter((key) => {
@@ -233,23 +239,38 @@ async function parseThread({ logger, client, event }) {
     if (!user[0] || !ts_user[user[0]].in_progress) {
       return;
     }
+    // メッセージのリダイレクト
     await redirectMessage({ client, logger }, user[0], event.text, null);
     if (event.files) {
       // file transport
       await fileDownload({ logger, client, event }, user[0], null);
     }
+    // 送信が完了したら，リアクションで完了通知
     await sendReaction({ logger, client, event }, "white_check_mark");
   }
+}
+
+// 送信済リアクション
+async function sendReaction({ logger, client, event }, reaction_name) {
+  const result = await client.reactions.add({
+    "channel": event.channel,
+    "name": reaction_name,
+    "timestamp": event.event_ts
+  }).catch((e) => logger.debug(e));
 }
 
 // リアクション追加を検知
 app.event("reaction_added", async ({ logger, client, event }) => {
   logger.debug("reaction_added event payload:\n" + JSON.stringify(event, null, 2) + "\n");
 
+  // Botが投稿した質問の場合は，ユーザ情報を保存しておく
   const user = Object.keys(ts_user).filter((key) => {
     return ts_user[key].ts === event.item.ts;
   });
+
+  // 各リアクションに対応した処理を行う
   if (event.reaction === "完了") {
+    // 完了はQABotが対応済を行う処理．
     await client.reactions.add({
       "channel": event.item.channel,
       "name": "対応済2",
@@ -274,6 +295,7 @@ app.event("reaction_added", async ({ logger, client, event }) => {
     }
     return;
   } else if (event.reaction === "delete" && event.user === "W015G22G970") {
+    // 投稿の削除は owner の場合に有効
     await client.chat.delete({
       token: process.env.SLACK_BOT_TOKEN,
       channel: event.item.channel,
@@ -282,36 +304,45 @@ app.event("reaction_added", async ({ logger, client, event }) => {
     return;
   }
   if (user[0]) {
+    // user情報がある -> 質問投稿に対する操作の場合
     if (event.reaction === "対応中" && !ts_user[user[0]].in_progress) {
+      // 対応中 の場合は転送開始
+      // STARTメッセージ
       await client.chat.postMessage({
         channel: ts_user[user[0]].channel,
         text: "[対応開始]以降のスレッドは質問者に転送されます。対応が終了した場合、 :対応済2: をスレッドトップのメッセージにつけてください。",
         thread_ts: ts_user[user[0]].ts
       }).catch((e) => logger.debug(e));
+      // フラグを入力し，コンフィグを更新
       ts_user[user[0]].in_progress = true;
       writeConfig("ts_user.json", ts_user);
     } else if (event.reaction === "対応済2" && ts_user[user[0]]) {
+      // 対応済2　の場合は，転送終了
+      // STOPメッセージ(教員・TA)
       await client.chat.postMessage({
         channel: ts_user[user[0]].channel,
         text: "[対応終了]以降のスレッドは転送されません。",
         thread_ts: ts_user[user[0]].ts
       }).catch((e) => logger.debug(e));
+      // STOPメッセージ(学生)
       await client.chat.postMessage({
         channel: user[0],
         text: "[対応終了]以降のやりとりは転送されません。",
       }).catch((e) => logger.debug(e));
+      // フィードバック処理
       await client.chat.postMessage({
         channel: user[0],
         text: "よろしければ、今回の対応のフィードバックをお願いします。(5点満点)",
         blocks: generateFeedBack(ts_user[user[0]].channel, ts_user[user[0]].ts, "よろしければ、今回の対応のフィードバックをお願いします。(5点満点)")
       }).catch((e) => logger.debug(e));
+      // 対応中テーブルから削除 & コンフィグ更新
       delete ts_user[user[0]];
       writeConfig("ts_user.json", ts_user);
     }
   }
 });
 
-// appエラー検知
+// appエラーをログに
 app.error((error) => {
   console.error(JSON.stringify(error));
 })
@@ -319,27 +350,38 @@ app.error((error) => {
 // reaction削除
 app.event("reaction_removed", async ({ logger, client, event, say }) => {
   logger.debug("reaction_removed event payload:\n\n" + JSON.stringify(event, null, 2) + "\n");
+
+  // 質問中ユーザを確認する
   const user = Object.keys(ts_user).filter((key) => { return ts_user[key].ts == event.item.ts });
+
   if (event.reaction === "対応中" && ts_user[user[0]]) {
+    // 質問　かつ　対応中の取り消し
+
     // メッセージのリアクションを取得
     const messages = await client.conversations.replies({
       channel: event.item.channel,
       ts: event.item.ts
     });
+
+    // TOPメッセージならば
     if (messages["messages"] && messages["messages"][0]) {
+      // reactionを取得
       const reactions = messages["messages"][0]["reactions"];
+      // 対応中のリアクションが他にされていないかを確認
       const progress = reactions.filter((item) => { return item.name === "対応中" });
       if (progress.length !== 0) {
         // 誰かが対応中の場合は対応しない
         return;
       }
     }
-    // 対応中を取り消した場合()
+    // 対応中止処理
     await client.chat.postMessage({
       channel: ts_user[user[0]].channel,
       text: "[対応中止] :対応中: が取り消されました。スレッドの転送を中止します。再開するには、もう一度質問のトップメッセージに :対応中: でリアクションしてください。",
       thread_ts: ts_user[user[0]].ts
     }).catch((e) => logger.debug(e));
+
+    // テーブル更新
     ts_user[user[0]].in_progress = false;
     writeConfig("ts_user.json", ts_user);
   }
@@ -362,7 +404,9 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
         // すでにどこかで対応中の場合は無視
         return;
       }
+      // user_idが発見できれば
       if (user_id) {
+        // 対応中に変更
         ts_user[user_id] = { user: user_id, ts: event.item.ts, channel: event.item.channel, in_progress: true };
         writeConfig("ts_user.json", ts_user);
 
@@ -382,16 +426,21 @@ app.event("reaction_removed", async ({ logger, client, event, say }) => {
   }
 });
 
-// フィードバック機能
+// =======================
+//   Feedback
+// =======================
+
+// フィードバック機能　action_id: feedback_button_X にマッチ
 app.action(/feedback_button_*/, async ({ ack, action, respond, say, client, logger }) => {
   logger.debug("action feedback_button: \n" + JSON.stringify(action, null, 2));
   await ack();
-  await respond("フィードバックを受け取りました。ありがとうございます！");
+  await respond("フィードバックを受け取りました。");
 
   // action_idの最後の一文字がフィードバックの点数
   const eval = action.action_id.split("_")[2];
   const value = JSON.parse(action.value);
 
+  // reactionでフィードバックの結果を通知
   const reaction = await client.reactions.add({
     "channel": value.channel,
     "name": eval,
@@ -399,6 +448,10 @@ app.action(/feedback_button_*/, async ({ ack, action, respond, say, client, logg
   }).catch((e) => logger.debug(JSON.stringify(e, null, 2)));
 
 });
+
+// ============================
+//   質問許可を与える(初期設定)
+// ============================
 
 // 質問先設定
 app.command("/qabot_load", async ({ logger, client, body, ack }) => {
@@ -429,6 +482,11 @@ app.command("/qabot_load", async ({ logger, client, body, ack }) => {
   }
 });
 
+
+// ================================
+//   Modal　Create（質問入力パネル）
+// ================================
+
 // shortcut(質問モーダル)
 app.shortcut("qabot_v2_modal", async ({ logger, client, body, ack }) => {
   await openModal({ logger, client, body, ack });
@@ -438,6 +496,7 @@ app.shortcut("qabot_v2_modal", async ({ logger, client, body, ack }) => {
 app.view("qabot_v2_modal_callback", async ({ logger, client, body, ack }) => {
   await handleViewSubmission({ logger, client, body, ack });
 });
+
 
 // modal open
 async function openModal({ logger, client, body, ack }) {
@@ -736,11 +795,10 @@ async function handleViewSubmission({ logger, client, body, ack }) {
   writeConfig("ts_user.json", ts_user);
   await client.chat.postMessage({
     channel: user,
-    text: question_text + "\n[自動応答]質問を受け付けました。返信をお待ちください。"
+    text: question_text + "\n[自動応答]質問を受け付けました。返信をお待ちください。\n追記事項がある場合はDM欄へ入力してください．ファイル転送も可能です．"
   }).catch((e) => logger.debug(e));
 
-  // ここでWEBHOOKを使う
-
+  // ここでWEBHOOKでアシスト処理へ情報を飛ばす．
 }
 
 // リダイレクト機能
@@ -769,6 +827,7 @@ async function redirectMessage({ client, logger }, channel, text, ts) {
 function generateChannelSelectBlock(user_id) {
   const options = [];
   if (!allow_channels[user_id]) {
+    // 質問が許可されていない人はNO_DATA
     return [{
       "text": {
         "type": "plain_text",
@@ -779,6 +838,7 @@ function generateChannelSelectBlock(user_id) {
     }];
   }
   for (const obj of allow_channels[user_id]) {
+    // 許可されているチャンネルを表示
     options.push({
       "text": {
         "type": "plain_text",
@@ -789,6 +849,7 @@ function generateChannelSelectBlock(user_id) {
     });
   }
   if (options.length === 0) {
+    // 許可されているチャンネルがなければ NO_DATA
     options.push({
       "text": {
         "type": "plain_text",
@@ -910,32 +971,9 @@ function generateFeedBack(channel_id, ts, text) {
   }];
 }
 
-// 送信済リアクション
-async function sendReaction({ logger, client, event }, reaction_name) {
-  const result = await client.reactions.add({
-    "channel": event.channel,
-    "name": reaction_name,
-    "timestamp": event.event_ts
-  }).catch((e) => logger.debug(e));
-}
-
-// PrivateChannelListを取得
-async function getPrivateChanenlList({ client }) {
-  const param = {
-    "types": "private_channel",
-    "limit": 100 // default
-  };
-  const channels = [];
-  function pageLoaded(res) {
-    res.channels.forEach(c => channels.push(c.id));
-    if (res.response_metadata && res.response_metadata.next_cursor && res.response_metadata.next_cursor !== '') {
-      param.cursor = res.response_metadata.next_cursor;
-      return client.users.conversations(param).then(pageLoaded);
-    }
-    return channels;
-  }
-  return client.users.conversations(param).then(pageLoaded);
-}
+// =====================
+//   Slack REST API Util
+// =====================
 
 // チャンネルに所属しているメンバーを取得
 async function getMembers({ client }, channel_id) {
@@ -955,7 +993,7 @@ async function getMembers({ client }, channel_id) {
   return client.conversations.members(param).then(pageLoaded);
 }
 
-// bot idを取得
+// bot idをtokenから取得する
 async function setBotID(client) {
   const test = await client.auth.test({
     token: process.env.SLACK_BOT_TOKEN
@@ -963,6 +1001,12 @@ async function setBotID(client) {
   console.log(test);
   bot_id = test.user_id;
 }
+
+
+// =======================
+// 　　File I/O Util
+// =======================
+
 
 // config存在確認
 function existsConfig(filename) {
@@ -995,11 +1039,9 @@ async function FDRequest(param, file_path) {
   });
 }
 
-// health check
-// receiver.app.get("/", (_req, res) => {
-//   res.send("Bolt App is running!");
-// });
-
+// =================
+//   Main Func
+// =================
 (async () => {
   //await app.start(process.env.PORT || 3000);
   await app.start();
@@ -1007,6 +1049,7 @@ async function FDRequest(param, file_path) {
 
   await setBotID(app.client);
 
+  // コンフィグファイルの読み込み
   if (existsConfig("channels.json")) {
     console.log("channels load");
     channel_table = readConfig("channels.json");
