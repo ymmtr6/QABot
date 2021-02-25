@@ -1,19 +1,19 @@
 version: "2"
 services:
-  https-portal:
-    image: steveltn/https-portal:1
-    ports:
-      - 80:80
-      - 443:443
-    restart: always
-    environment:
-      DOMAINS: "example.com -> http://qabot:3000"
-      STAGE: production
-      CLIENT_MAX_BODY_SIZE: 0
-    volumes:
-      - ./https-portal:/var/lib/https-portal
+  # https-portal:
+  #   image: steveltn/https-portal:1
+  #   ports:
+  #     - 80:80
+  #     - 443:443
+  #   restart: always
+  #   environment:
+  #     DOMAINS: "example.com -> http://qabot:3000"
+  #     STAGE: production
+  #     CLIENT_MAX_BODY_SIZE: 0
+  #   volumes:
+  #     - ./https-portal:/var/lib/https-portal
   qabot:
-    image: ymmtr6/qabot:v2
+    image: ymmtr6/qabot:socket
     restart: always
     ports:
       - 8686:3000
@@ -21,4 +21,4 @@ services:
       - .env
     volumes:
       - ./config:/usr/src/app/config
-      - ./tmp:/usr/src/app/tmp
+#      - ./tmp:/usr/src/app/tmp
